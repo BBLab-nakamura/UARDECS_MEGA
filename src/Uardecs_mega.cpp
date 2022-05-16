@@ -1,15 +1,29 @@
+//ソースコード中のコメントについては、基本的に中村による
+
+
 #include <Uardecs_mega.h>
 
+//バッファを確保　→使用するマイコンのEEPROMによって変わる
 char UECSbuffer[BUF_SIZE];//main buffer
+//おそらく文字列用のバッファを確保　文字の配列で２０個確保
 char UECStempStr20[MAX_TYPE_CHAR];//sub buffer
+
+//イーサネットのインスタンス
 EthernetUDP UECS_UDP16520;
 EthernetUDP UECS_UDP16529;
 EthernetUDP UECS_UDP16521;
+
+//指定したポートをlistenするサーバを生成して、接続の要求に対応します。
+// http://www.musashinodenpa.com/arduino/ref/index.php?f=1&pos=1273
+//引数：リッスンするポートの番号
 EthernetServer UECSlogserver(80);
+//指定されたインターネットIPアドレスとポート（client.connect（）関数で定義）に接続できるクライアントを作成します。
 EthernetClient UECSclient;
 
+//ccmオブジェクトの作成
 struct UECSTEMPCCM UECStempCCM;
 
+//時間の把握用のカウンター
 unsigned char UECSsyscounter60s;
 unsigned long UECSsyscounter1s;
 unsigned long UECSnowmillis;
@@ -23,19 +37,24 @@ unsigned long UECSlastmillis;
 //##############################################################################
 //##############################################################################
 
-
+//uecs用の文字列の準備
 const char *UECSattrChar[] = { UECSccm_ROOMTXT, UECSccm_REGIONTXT, UECSccm_ORDERTXT, UECSCCM_PRIOTXT,};
+//送信頻度を準備（文字列として準備、使い方は後で把握する必要がある）
 const char *UECSCCMLEVEL[]={UECS_A1S0, UECS_A1S1, UECS_A10S0, UECS_A10S1, UECS_A1M0, UECS_A1M1, UECS_S1S, UECS_S1M, UECS_B0_, UECS_B1_, };
 
+//
+//第一引数：CCMオブジェクトのポインタ
+//第二引数：
+//返り値：
 boolean UECSparseRec( struct UECSTEMPCCM *_tempCCM,int *matchCCMID){
 	
-	
+
 	int i;
 	int progPos = 0;
 	int startPos = 0;
 	short shortValue=0;
 	
-
+	//
 	if(!UECSFindPGMChar(UECSbuffer,&UECSccm_XMLHEADER[0],&progPos)){return false;}
 	startPos+=progPos;
 	
@@ -509,55 +528,74 @@ for(int id=0;id<U_MAX_CCM;id++)
 //##############################################################################
 //##############################################################################
 
-
+//EEPROMに書き込む
+//第一引数：書き込む場所のアドレス
+//第二引数：書き込みたいデータのサイズ
 void UECS_EEPROM_writeLong(int ee, long value)
 {
+		//必要な容量の把握？（書き込む文字数？）
     byte* p = (byte*)(void*)&value;
+		//
     for (unsigned int i = 0; i < sizeof(value); i++)
     {
+		//書き込まれている内容はスキップする
     if(EEPROM.read(ee)!=p[i])//same value skip
     		{
-    		EEPROM.write(ee, p[i]);
+    		EEPROM.write(ee, p[i]);	//書き込む
     		}
     		ee++;
 	}
 
 }
 
+//EEPROMから読み込む　※
+//引数：読み込みを開始する位置
+//返り値：読み込んだデータのアドレス？
 long UECS_EEPROM_readLong(int ee)
 {
+		//
     long value = 0;
     byte* p = (byte*)(void*)&value;
     for (unsigned int i = 0; i < sizeof(value); i++)
-	  *p++ = EEPROM.read(ee++);
-    return value;
+	  *p++ = EEPROM.read(ee++);		//読み込んだ値を用意した領域に入れていく
+
+    return value;		//読み込んだ値が入っているポインタ
 }
 //-----------------------------------------------------------new
-void HTTPsetInput(short _value){
-    HTTPAddPGMCharToBuffer(&(UECShtmlInputText[0]));
+//
+void HTTPsetInput(short _value){		//表示するアドレスの文字列を作成する
+    HTTPAddPGMCharToBuffer(&(UECShtmlInputText[0]));		//文字列の追加
     HTTPAddValueToBuffer(_value);
     HTTPAddPGMCharToBuffer(&(UECShtmlINPUTCLOSE3[0]));
 }
 //-----------------------------------------------------------new
+//ipアドレスをwebブラウザに表示する
+//引数：ipアドレスの配列
 void HTTPprintIPtoHtml(byte address[])
 {
+	//ex)255:255:255:255<br>　になる
   for(int i = 0; i < 3; i++)
-  { 
+  {
+	 //表示するipアドレスを詰め込む
    HTTPsetInput(address[i]);
-   HTTPAddPGMCharToBuffer(UECSTxtPartColon);
+   HTTPAddPGMCharToBuffer(UECSTxtPartColon);		//ipアドレスを:で繋いでいく
   }      
   HTTPsetInput(address[3]);
-  HTTPAddPGMCharToBuffer(&(UECSbtrag[0]));
+  HTTPAddPGMCharToBuffer(&(UECSbtrag[0]));			//改行コード
 
 }
 //-----------------------------------------------------------new
 //---------------------------------------------------------------
+//
+//引数：
 void HTTPPrintRedirect(char page){
- ClearMainBuffer();
+ ClearMainBuffer();		//バッファの初期化
+ //表示する文字列を作成していく
  HTTPAddPGMCharToBuffer(&(UECShttpHead200_OK[0]));
  HTTPAddPGMCharToBuffer(&(UECShttpHeadContentType[0]));
  HTTPAddPGMCharToBuffer(&(UECShttpHeadConnection[0]));
  HTTPAddPGMCharToBuffer(&(UECShtmlHEADER[0]));
+ //表示するhtmlを作成していく
  if(page==3)
  	{
  	HTTPAddPGMCharToBuffer(&(UECShtmlREDIRECT3[0]));
@@ -567,7 +605,7 @@ void HTTPPrintRedirect(char page){
 	 HTTPAddPGMCharToBuffer(&(UECShtmlREDIRECT1[0]));
  	}
  
- HTTPCloseBuffer();
+ HTTPCloseBuffer();			//uecsクライアントに表示
 }
 /*
 void HTTPPrintRedirectP3(){
@@ -580,9 +618,11 @@ void HTTPPrintRedirectP3(){
  HTTPCloseBuffer();
 }*/
 //-----------------------------------------------------------
+//html用のヘッダーの作成
 void HTTPPrintHeader(){
- ClearMainBuffer();
- 
+ ClearMainBuffer();		//バッファのクリア
+
+//ヘッダー用のhtmを作成していく 
 HTTPAddPGMCharToBuffer(&(UECShttpHead200_OK[0]));
 HTTPAddPGMCharToBuffer(&(UECShttpHeadContentType[0]));
 HTTPAddPGMCharToBuffer(&(UECShttpHeadConnection[0]));
@@ -590,11 +630,15 @@ HTTPAddPGMCharToBuffer(&(UECShttpHeadConnection[0]));
  HTTPAddPGMCharToBuffer(&(UECShtmlHEADER[0]));
  HTTPAddPGMCharToBuffer(&(UECShtmlNORMAL[0]));
 
+ //メモリがリークしてる時　※
+ //ビット演算？　詳しく調べる必要がある https://www.javadrive.jp/cstart/ope/index6.html
+ //両方の同じビットが１の時だけ１になる
+ //ビットごとにステータスが割り当てられている（ヘッダー参照）
  if(U_orgAttribute.status & STATUS_MEMORY_LEAK)
- 	{HTTPAddPGMCharToBuffer(&(UECShtmlATTENTION_INTERR[0]));}
-
+ 	{HTTPAddPGMCharToBuffer(&(UECShtmlATTENTION_INTERR[0]));}		//err表示
+	//safemodeの時
  if(U_orgAttribute.status & STATUS_SAFEMODE)
- 	{HTTPAddPGMCharToBuffer(&(UECShtmlATTENTION_SAFEMODE[0]));}
+ 	{HTTPAddPGMCharToBuffer(&(UECShtmlATTENTION_SAFEMODE[0]));}		//safemode表示
 
  HTTPAddPGMCharToBuffer(&(U_name[0]));
  
@@ -603,22 +647,25 @@ HTTPAddPGMCharToBuffer(&(UECShttpHeadConnection[0]));
   HTTPAddPGMCharToBuffer(&(UECShtml1A[0]));   // </script></HEAD><BODY><CENTER><H1>
 }
 //-----------------------------------------------------------
+//ccmが送信できなかった時に表示されるページ？
 void HTTPsendPageError(){
-  HTTPPrintHeader();
+  HTTPPrintHeader();		//ヘッダーの作成
+	//表示用のhtmlの作成
   HTTPAddPGMCharToBuffer(&(UECSpageError[0]));      
   HTTPAddPGMCharToBuffer(&(UECShtmlH1CLOSE[0]));
   HTTPAddPGMCharToBuffer(&(UECShtmlHTMLCLOSE[0])); 
-  HTTPCloseBuffer();
+  HTTPCloseBuffer();		//uecsクライアントに表示
 }
 //-------------------------------------------------------------
+//GETに対して返すページ？
 void HTTPsendPageIndex(){
 
-  HTTPPrintHeader();
+  HTTPPrintHeader();		//ヘッダーの作成
   HTTPAddCharToBuffer(U_nodename);
   HTTPAddPGMCharToBuffer(&(UECShtmlH1CLOSE[0]));
   HTTPAddPGMCharToBuffer(&(UECShtmlIndex[0]));
   HTTPAddPGMCharToBuffer(&(UECShtmlHR[0]));
-  HTTPAddPGMCharToBuffer(&(U_footnote[0]));
+  HTTPAddPGMCharToBuffer(&(U_footnote[0]));		//空？
 
 #if defined(_ARDUINIO_MEGA_SETTING)
 HTTPAddPGMCharToBuffer(&(LastUpdate[0]));
@@ -628,7 +675,7 @@ HTTPAddPGMCharToBuffer(&(ProgramTime[0]));
 #endif
 
   HTTPAddPGMCharToBuffer(&(UECShtmlHTMLCLOSE[0]));
-  HTTPCloseBuffer();
+  HTTPCloseBuffer();			//実際に表示
 }
 //--------------------------------------------------
 void HTTPsendPageLANSetting(){
@@ -1118,7 +1165,7 @@ int HTTPGetFormDataEDITCCMPage()
 	for(i=0;i<MAX_CCMTYPESIZE;i++)
 		{
 		if(UECSbuffer[startPos+i]=='&'){break;}
-		if(UECSbuffer[startPos+i]=='\0' || i==MAX_CCMTYPESIZE){return ccmid;}//���[���Ȃ�
+		if(UECSbuffer[startPos+i]=='\0' || i==MAX_CCMTYPESIZE){return ccmid;}//���[���Ȃ�
 
 		if( (UECSbuffer[startPos+i]>='0' && UECSbuffer[startPos+i]<='9')||
 			(UECSbuffer[startPos+i]>='A' && UECSbuffer[startPos+i]<='Z')||
@@ -1199,7 +1246,7 @@ void HTTPGetFormDataLANSettingPage()
 			{UECSbuffer[startPos+i]='*';}
 			
 			if(UECSbuffer[startPos+i]=='&'){break;}
-			if(UECSbuffer[startPos+i]=='\0' || i==19){return;}//�I�[�������̂Ŗ���
+			if(UECSbuffer[startPos+i]=='\0' || i==19){return;}//�I�[�������̂Ŗ���
 			//prevention of Cutting multibyte UTF-8 code
 			if(i>=16 && (unsigned char)UECSbuffer[startPos+i]>=0xC0)//UTF-8 multibyte code header
 				{
@@ -1446,7 +1493,7 @@ if(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_L_CCM_TOTAL>EEPROM_CCMEND){return;}//out of m
 #endif
 
 int i;
-//type��������
+//type��������
 for(i=0;i<=MAX_CCMTYPESIZE;i++)
 	{
 	if(EEPROM.read(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_TYPETXT+i)!=U_ccmList[ccmid].typeStr[i])
@@ -1623,8 +1670,10 @@ if(UECSnowmillis<UECSlastmillis)
 
 }
 //------------------------------------------------------
+//
 void UECSinitOrgAttribute(){
-	
+
+		//接続情報を把握する
 	  for(int i = 0; i < 4; i++)
 	  	{
 	  	U_orgAttribute.ip[i]		= EEPROM.read(i + EEPROM_IP);
@@ -1645,10 +1694,10 @@ void UECSinitOrgAttribute(){
 //	  U_orgAttribute.region =  EEPROM.read(EEPROM_REGION);
 //	  U_orgAttribute.order 	=  EEPROM.read(EEPROM_ORDER_L)+ (unsigned short)(EEPROM.read(EEPROM_ORDER_H))*256;
 //	 if(U_orgAttribute.order>30000){U_orgAttribute.order=30000;}
-
+//セーフモードの時は終了
 if(U_orgAttribute.status & STATUS_SAFEMODE){return;}
 
-
+		//nodenameの確認
 	  for(int i = 0; i < 20; i++)
 	  	  {
 		     U_nodename[i] = EEPROM.read(EEPROM_NODENAME + i);
@@ -1955,12 +2004,21 @@ int i,j;
 }
 
 //------------------------------------
+//指定した文字列を探す？
+//
+//
+//
+//
 bool UECSFindPGMChar(char* targetBuffer,const char *_romword_startStr,int *lastPos)
 {
+//初期化
 *lastPos=0;
 int startPos=-1;
+//文字列の大きさを把握
 int _targetBuffersize=strlen(targetBuffer);
+//引数のPROGMEMの長さを把握
 int _startStrsize=strlen_P(_romword_startStr);
+//
 if(_targetBuffersize<_startStrsize){return false;}
 
 
@@ -2206,15 +2264,19 @@ return false;
 /********************************/
 /* 16521 Response   *************/
 /********************************/
-
+//CCMのサーチに対する反応？
+//引数：一時保存CCMのアドレス
+//返り値：
 boolean UECSresCCMSearchAndSend(UECSTEMPCCM* _tempCCM){
 	//CCM provider search response
 	/*
 	In periodic transmission, only CCMs with a proven track record of transmission will return a response.
 	Among regularly sent CCMs, CCMs that have not been sent at the specified frequency will not return a response even if they are registered. 
 	This is to prevent accidental reference to broken sensors.
+	定期送信では送信実績のあるCCMのみ応答を返す
 	*/
-   	int i;
+  
+	int i;
 	int progPos = 0;
 	int startPos = 0;
 	short room=0;
@@ -2304,13 +2366,24 @@ for(int id=0;id<U_MAX_CCM;id++)
     return true;
 }
 //------------------------------------------------------------------------------
+//CCMを受信するかどうか確認？
+//第一引数：属性
+//第二引数：属性
+//第三引数：属性
+//返り値：受信する時 true, 無視する時　false
 boolean UECSCCMSimpleHitcheck(int ccmid,short room,short region,short order)
 {
+//送信頻度が０の時とセンダーがないときはfalse
 if(U_ccmList[ccmid].ccmLevel == NONE || !U_ccmList[ccmid].sender){return false;}
+//ccmのtypeが、一時保存と違うときはfalse
 if(strcmp(U_ccmList[ccmid].typeStr,UECStempStr20) != 0){return false;}
+//規定の送信頻度を満たさず、遠隔操作がないときと送信要求がないとき
 if(!U_ccmList[ccmid].validity && U_ccmList[ccmid].ccmLevel<=A_1M_1){return false;}
+//基本属性が異なる時はfalse？
 if(!(room==0 || U_ccmList[ccmid].baseAttribute[AT_ROOM]==0 || U_ccmList[ccmid].baseAttribute[AT_ROOM]==room)){return false;}
+//
 if(!(region==0 || U_ccmList[ccmid].baseAttribute[AT_REGI]==0 || U_ccmList[ccmid].baseAttribute[AT_REGI]==region)){return false;}
+//
 if(!(order==0 || U_ccmList[ccmid].baseAttribute[AT_ORDE]==0 || U_ccmList[ccmid].baseAttribute[AT_ORDE]==order)){return false;}
 return true;
 }

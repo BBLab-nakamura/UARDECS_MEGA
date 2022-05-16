@@ -7,7 +7,7 @@
 #include <SPI.h>
 #include <Ethernet2.h> //Arduino IDE Ver1.7.2以降でW5500搭載機種
 //#include <Ethernet.h> //Ver1.7.2以降でW5100搭載機種
-#include <avr/pgmspace.h>
+#include <avr/pgmspace.h>		//espでは使用できないかも
 #include <EEPROM.h>
 #include <Uardecs_mega.h>
 
@@ -20,6 +20,7 @@ const char U_vender[] PROGMEM= "XXXXXX Co.";
 const char U_uecsid[] PROGMEM= "000000000000";
 const char U_footnote[] PROGMEM= "Test node";
 char U_nodename[20] = "Sample";
+
 UECSOriginalAttribute U_orgAttribute;
 
 const int U_HtmlLine = 0;
