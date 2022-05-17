@@ -1,4 +1,5 @@
 //ソースコード中のコメントについては、基本的に中村による
+//作成者によるコメントは英語になっている
 
 
 #include <Uardecs_mega.h>
@@ -42,7 +43,7 @@ const char *UECSattrChar[] = { UECSccm_ROOMTXT, UECSccm_REGIONTXT, UECSccm_ORDER
 //送信頻度を準備（文字列として準備、使い方は後で把握する必要がある）
 const char *UECSCCMLEVEL[]={UECS_A1S0, UECS_A1S1, UECS_A10S0, UECS_A10S1, UECS_A1M0, UECS_A1M1, UECS_S1S, UECS_S1M, UECS_B0_, UECS_B1_, };
 
-//
+//ccmの情報とipアドレスをオブジェクトに入れる
 //第一引数：CCMオブジェクトのポインタ
 //第二引数：
 //返り値：
@@ -54,93 +55,111 @@ boolean UECSparseRec( struct UECSTEMPCCM *_tempCCM,int *matchCCMID){
 	int startPos = 0;
 	short shortValue=0;
 	
-	//
+	//GETメソッドの確認
 	if(!UECSFindPGMChar(UECSbuffer,&UECSccm_XMLHEADER[0],&progPos)){return false;}
 	startPos+=progPos;
-	
+	//UECSのバージョンを確認
 	if(UECSFindPGMChar(&UECSbuffer[startPos],&UECSccm_UECSVER_E10[0],&progPos))
 		{
+		//次の領域に移動する
 		startPos+=progPos;
 			//E10 packet
 		}
 	else
 		{
 			//other ver packet
+			//バージョンが違うときは終了
 			if(!(U_orgAttribute.flags&ATTRFLAG_LOOSELY_VERCHECK)){return false;}
 		}
-	
+	//データのタイプのアドレスを把握する
 	if(!UECSFindPGMChar(&UECSbuffer[startPos],&UECSccm_DATATYPE[0],&progPos)){return false;}
 	startPos+=progPos;
-	
-	
 	
 	//copy ccm type string
 	for(i=0;i<MAX_TYPE_CHAR;i++)
 	{
+		//ccmオブジェクトにtypeを入れていく
 	_tempCCM->type[i]=UECSbuffer[startPos+i];
+	//ダブルクォーテーションかnullがあるときはnullを入れて終了
 	if(_tempCCM->type[i]==ASCIICODE_DQUOT || _tempCCM->type[i]=='\0')
 		{_tempCCM->type[i]='\0';break;}
 	}
+	//終端にnullを入れる
 	_tempCCM->type[MAX_CCMTYPESIZE]='\0';
+	//次の領域に移動
 	startPos=startPos+i;
 	
 	//In a practical environment ,packets of 99% are irrelevant CCM.
 	//matching top 3 chars for acceleration 
-	*matchCCMID=-1;
+	//高速化するために上位3文字でマッチさせていく
+	*matchCCMID=-1;			//なぜ-1を代入させるのか？※
+
 	for(i=0;i<U_MAX_CCM;i++)
 	{
+			//送受信頻度が0ではなくて、受信モードの時の処理
       if(U_ccmList[i].ccmLevel != NONE && U_ccmList[i].sender == false)//check receive ccm
       	{
+				//上位三文字を比較してマッチしたら
         if(_tempCCM->type[0]==U_ccmList[i].typeStr[0] && 
            _tempCCM->type[1]==U_ccmList[i].typeStr[1] && 
        	   _tempCCM->type[2]==U_ccmList[i].typeStr[2])
         		{
-        		*matchCCMID=i;
+						//CCMがマッチしていることの確認処理を終了
+        		*matchCCMID=i;		//3が入るはず
         		break;
         		}
         }
 	}
+	//上位3文字がマッチしていなかったらfalseを返して終了
 	if(*matchCCMID<0){return false;}//my ccm was not match ->cancel packet reading
-
-
+	
+	//4回繰り返す　(room, region, order, priorityがあるか確認する)
 	for(i=0;i<MAX_ATTR_NUMBER;i++)
 	{
+	//必要な情報がなければそこで終了してfalseを返す
 	if(!UECSGetValPGMStrAndChr(&UECSbuffer[startPos],UECSattrChar[i],'\"',&(_tempCCM->attribute[i]),&progPos)){return false;}
 	startPos+=progPos;
 	}
 
 	//find tag end
+	//タグの終わりを確認する「>」
 	if(!UECSFindPGMChar(&UECSbuffer[startPos],&UECSccm_CLOSETAG[0],&progPos)){return false;}
 	startPos+=progPos;
 	
 	//get value
+	//値と小数の桁数をオブジェクトに入れる
 	if(!UECSGetFixedFloatValue(&UECSbuffer[startPos],&(_tempCCM->value),&(_tempCCM->decimal),&progPos)){return false;}
-	startPos+=progPos;
+	startPos+=progPos;		//アドレスの確認
 	
 	//ip tag
+	//ipアドレス用のタグが見つからないときは
 	if(!UECSFindPGMChar(&UECSbuffer[startPos],&UECSccm_IPTAG[0],&progPos))
 		{
 			//ip tag not found(old type packet)
 			//ip address is already filled
+			//UECSを閉じるタグを探す</UECS> 見つからなかったらfalse 見つかったらtrue
 			if(!UECSFindPGMChar(&UECSbuffer[startPos],&UECSccm_FOOTER0[0],&progPos)){return false;}
 			return true;
 		}
+	//アドレスの確認
 	startPos+=progPos;
 	
 	
 	unsigned char ip[4];
+	//ipアドレスを確認できなかったら処理の中断
 	if(!UECSGetIPAddress(&UECSbuffer[startPos],ip,&progPos)){return false;}
-
+	//ipアドレスをオブジェクトに入れていく
 	_tempCCM->address[0]=ip[0];
 	_tempCCM->address[1]=ip[1];
 	_tempCCM->address[2]=ip[2];
 	_tempCCM->address[3]=ip[3];
-	
+	//アドレスの確認
 	startPos+=progPos;
-
+	//ccmが確認できたら終了？※
 	if(U_orgAttribute.flags&ATTRFLAG_LOOSELY_VERCHECK){return true;}//Ignore information after ip
 	
 	//check footer
+	//UECSの閉じタグが確認できなかったら中断してfalseを返す
 	if(!UECSFindPGMChar(&UECSbuffer[startPos],&UECSccm_FOOTER1[0],&progPos)){return false;}
 	/*
 	Serial.println("type");
@@ -166,6 +185,7 @@ boolean UECSparseRec( struct UECSTEMPCCM *_tempCCM,int *matchCCMID){
 	Serial.println("ip[3]");
 	Serial.println(_tempCCM->address[3]);
 	*/
+	//終了
 	return true;
 
 
@@ -678,6 +698,7 @@ HTTPAddPGMCharToBuffer(&(ProgramTime[0]));
   HTTPCloseBuffer();			//実際に表示
 }
 //--------------------------------------------------
+
 void HTTPsendPageLANSetting(){
   UECSinitOrgAttribute();
 
@@ -1302,20 +1323,24 @@ void HTTPGetFormDataFillCCMAttributePage()
 
 }
 //---------------------------------------------####################
+//
 void HTTPcheckRequest(){
-UECSclient=UECSlogserver.available();
+//(Ethenetserver) サーバーに接続しているクラインアントを取得	利用可能なクライアントがないときは偽
+UECSclient=UECSlogserver.available();	
   //Caution! This function can not receive only up to the top 299 bytes.
   //Dropped string will be ignored.
+	//上位299バイトが読み込まれる
   
-  if(UECSclient)
+  if(UECSclient)		//クライアントがあるか確認
   {
       
       //Add null termination 
-      UECSbuffer[UECSclient.read((uint8_t *)UECSbuffer,BUF_SIZE-1)]='\0';
+      UECSbuffer[UECSclient.read((uint8_t *)UECSbuffer,BUF_SIZE-1)]='\0';	//null終端の追加
       
-
+			//余計なものを除く
       HTTPFilterToBuffer();//Get first line before "&S=" and eliminate unnecessary code
 			int progPos = 0;
+			//
 			if(UECSFindPGMChar(UECSbuffer,&(UECSaccess_NOSPC_GETP0[0]),&progPos))
 			{HTTPsendPageIndex();}
 		else if(UECSFindPGMChar(UECSbuffer,&(UECSaccess_NOSPC_GETP1[0]),&progPos))
@@ -1486,6 +1511,8 @@ for(i=0;i<(EEPROM_CCMTOP-EEPROM_PROGRAMDATETIME);i++)
 //---------------------------------------------
 
 //--------------------------------------------------------------
+//EEPROMにccmTypeを書き込む
+//引数：ccmid
 void UECS_EEPROM_SaveCCMType(int ccmid)
 {
 #if defined(_ARDUINIO_MEGA_SETTING)
@@ -1496,20 +1523,23 @@ int i;
 //type��������
 for(i=0;i<=MAX_CCMTYPESIZE;i++)
 	{
+		//保存されているccmidと異なる時はccmidをEEPROMに保存する
 	if(EEPROM.read(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_TYPETXT+i)!=U_ccmList[ccmid].typeStr[i])
 		{
 		EEPROM.write(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_TYPETXT+i,U_ccmList[ccmid].typeStr[i]);
 		}
-	if(U_ccmList[ccmid].typeStr[i]=='\0'){break;}
+	if(U_ccmList[ccmid].typeStr[i]=='\0'){break;}		//nullで終端を把握
 	}
 }
 //--------------------------------------------------------------
+//ccmの属性を保存する
+//引数：ccmid
 void UECS_EEPROM_SaveCCMAttribute(int ccmid)
 {
 #if defined(_ARDUINIO_MEGA_SETTING)
 if(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_L_CCM_TOTAL>EEPROM_CCMEND){return;}//out of memory
 #endif
-
+//EEPROMでの保存内容と異なる時はccmの属性を書き込む
 if(EEPROM.read(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_ROOM)!=(unsigned char)(U_ccmList[ccmid].baseAttribute[AT_ROOM]))
 	{EEPROM.write(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_ROOM,(unsigned char)(U_ccmList[ccmid].baseAttribute[AT_ROOM]));}
 
@@ -1528,6 +1558,8 @@ if(EEPROM.read(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_PRIO)!=(unsig
 }
 
 //--------------------------------------------------------------
+//
+//引数：ccmid
 void UECS_EEPROM_LoadCCMSetting(int ccmid)
 {
 #if defined(_ARDUINIO_MEGA_SETTING)
@@ -1537,10 +1569,13 @@ if(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_L_CCM_TOTAL>EEPROM_CCMEND){return;}//out of m
 int i;
 for(i=0;i<MAX_CCMTYPESIZE;i++)
 	{
+		//設定内容を読み出す
 	U_ccmList[ccmid].typeStr[i]=EEPROM.read(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_TYPETXT+i);
+	//終端の把握
 	if(U_ccmList[ccmid].typeStr[i]==255){U_ccmList[ccmid].typeStr[i]='x';break;}
 	if(U_ccmList[ccmid].typeStr[i]=='\0'){break;}
 	}
+	//終端把握のためにnullをつける
 	U_ccmList[ccmid].typeStr[i]='\0';
 	
 /*
@@ -1552,27 +1587,34 @@ U_ccmList[ccmid].baseAttribute[AT_ORDE]=
 U_ccmList[ccmid].baseAttribute[AT_PRIO]=EEPROM.read(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_PRIO) & 31;
 U_ccmList[ccmid].attribute[AT_PRIO] =U_ccmList[ccmid].baseAttribute[AT_PRIO];
 */
+//読み出した設定内容をccmに代入する
 U_ccmList[ccmid].baseAttribute[AT_ROOM]=EEPROM.read(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_ROOM);
 U_ccmList[ccmid].baseAttribute[AT_REGI]=EEPROM.read(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_REGI);
 U_ccmList[ccmid].baseAttribute[AT_ORDE]=(EEPROM.read(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_ORDE_L)+EEPROM.read(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_ORDE_H)*256);
 U_ccmList[ccmid].baseAttribute[AT_PRIO]=EEPROM.read(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_PRIO);
 
 //Prepare the correct values for the Arduino where the data will be written for the first time.
+//始めてデータを書き込むArduinoには正しい値を用意する
+//始めて使用する際の初期値のことだと思われる
 if(U_ccmList[ccmid].baseAttribute[AT_ROOM]==0xff)
 	{
 	U_ccmList[ccmid].baseAttribute[AT_ROOM]=1;
 	U_ccmList[ccmid].baseAttribute[AT_REGI]=1;
 	U_ccmList[ccmid].baseAttribute[AT_ORDE]=1;
 	U_ccmList[ccmid].baseAttribute[AT_PRIO]=U_ccmList[ccmid].attribute[AT_PRIO];
-	UECS_EEPROM_SaveCCMAttribute(ccmid);
+	UECS_EEPROM_SaveCCMAttribute(ccmid);		//ccmの属性をEEPROMに保存する
 	}
+//プライオリティの設定
 U_ccmList[ccmid].attribute[AT_PRIO] =U_ccmList[ccmid].baseAttribute[AT_PRIO];
 
 }
 
 //---------------------------------------------
+//
 void UECSstartEthernet(){
-  
+	//ethernetライブラリとネットワークの初期化　
+	//https://garretlab.web.fc2.com/arduino_reference/libraries/standard_libraries/Ethernet/EthernetClass/begin.html
+  //セーフモードの時の設定
   if(U_orgAttribute.status&STATUS_SAFEMODE)
   	{
   	byte defip[]     = {192,168,1,7};
@@ -1581,10 +1623,12 @@ void UECSstartEthernet(){
   	Ethernet.begin(U_orgAttribute.mac, defip, defdummy,defdummy,defdummy);
   	}
   	else
+		//セーフモードでないときはネットワークの設定情報を使用する
     {
     Ethernet.begin(U_orgAttribute.mac, U_orgAttribute.ip, U_orgAttribute.dns, U_orgAttribute.gateway, U_orgAttribute.subnet);
     }
 
+	//サーバーを立ち上げてポートを開く　※
   UECSlogserver.begin();
   UECS_UDP16520.begin(16520);
   UECS_UDP16529.begin(16529);
@@ -1592,6 +1636,7 @@ void UECSstartEthernet(){
 }
 
 //---------------------------------------------------------
+//イーサネットの初期化
 void UECSresetEthernet()
 {
   	//UECS_UDP16520.stop();
@@ -1600,8 +1645,9 @@ void UECSresetEthernet()
   	UECSstartEthernet();
 }
 //------------------------------------------------------------------------
-//Software reset command
+//Software reset command　ソフトウェアリセット
 // call 0
+//https://ehbtj.com/electronics/arduino-software-reset/
 typedef int (*CALLADDR)(void);
 void SoftReset(void)
 {
@@ -1611,7 +1657,7 @@ CALLADDR resetAddr=0;
 //---------------------------------------------------------
 //---------------------------------------------------------
 //----------------------------------------------------------------------
-
+//uecsのメイン関数
 void UECSloop(){
 
   // network Check
@@ -1705,10 +1751,12 @@ if(U_orgAttribute.status & STATUS_SAFEMODE){return;}
 		  
 	 for(int i = 0; i < U_HtmlLine; i++)
 		 {
+			 //htmlをEEPROMから読み込む
 	     *(U_html[i].data) = UECS_EEPROM_readLong(EEPROM_WEBDATA + i * 4);
 		 } 
 }
 //------------------------------------------------------
+//UECSccmを初期化する
 void UECSinitCCMList(){
   for(int i = 0; i < U_MAX_CCM; i++){
     U_ccmList[i].ccmLevel = NONE;
@@ -1733,6 +1781,10 @@ char _ccmLevel)
  
 }
 */
+//おそらくこの関数は使用されていない　※
+//
+//引数：設定内容
+//
 void UECSsetCCM(boolean _sender, signed char _num, const char* _name, const char* _type, const char* _unit, unsigned short _priority, unsigned char _decimal, char _ccmLevel)
 {
  if(_num > U_MAX_CCM || _num < 0){
@@ -1757,11 +1809,12 @@ void UECSsetCCM(boolean _sender, signed char _num, const char* _name, const char
 //  U_ccmList[_num].baseAttribute[AT_REGI] = 1;
 //  U_ccmList[_num].baseAttribute[AT_ORDE] = 1;
   U_ccmList[_num].baseAttribute[AT_PRIO] = _priority;
+	//PROGMEM領域にある文字列の連結
   strcat_P(U_ccmList[_num].typeStr,U_ccmList[_num].type);
 
-if(U_orgAttribute.status&STATUS_PROGRAMUPDATE)
+if(U_orgAttribute.status&STATUS_PROGRAMUPDATE)		//新しいプログラムをロードするときは
 	{
-  	UECS_EEPROM_SaveCCMType(_num);
+  	UECS_EEPROM_SaveCCMType(_num);		//ccmTypeを書き込む　引数はccmid
 	}
 
   	UECS_EEPROM_LoadCCMSetting(_num);
@@ -1782,12 +1835,17 @@ for(int i=0;i<BUF_SIZE;i++)
 wp=0;
 }
 //-----------------------------------
+//EEPROMから読み出してバッファに加える
+//引数：読み出す読み込み専用のデータ
 void UDPAddPGMCharToBuffer(const char* _romword)
 {
    for(int i = 0; i <= MAXIMUM_STRINGLENGTH; i++)
    {
+		//読み出した値をバッファに加える
     UECSbuffer[wp]=pgm_read_byte(&_romword[i]);
+		//nullが出たら終了
     if(UECSbuffer[wp]=='\0'){break;}
+
     wp++;
   }
   #if defined(_ARDUINIO_MEGA_SETTING)
@@ -1796,9 +1854,12 @@ void UDPAddPGMCharToBuffer(const char* _romword)
 
 }
 //-----------------------------------
+//バッファに文字を追加していく
+//引数：連結する文字
 void UDPAddCharToBuffer(char* word){
+	//バッファに文字を追加
 	strcat(UECSbuffer,word);
-	wp=strlen(UECSbuffer);
+	wp=strlen(UECSbuffer);		//バッファのサイズを把握
   #if defined(_ARDUINIO_MEGA_SETTING)
 	 MemoryWatching();
   #endif
@@ -1888,6 +1949,7 @@ if(strlen(UECSbuffer)>0)
 //replace the continuous space character to 1 space
 //Attention:first one character is ignored without delete.
 //------------------------------------
+//スペースや改行コード等不要なアスキーコードを除く
 void UDPFilterToBuffer(void)
 {
 
@@ -1899,19 +1961,22 @@ int i,j;
     if(UECSbuffer[i]=='\0'){break;}
     
     //find space
+		//アスキーコードでスペースより小さいかスペースが2文字続いた場合
     if(UECSbuffer[i]<ASCIICODE_SPACE || (UECSbuffer[i]==ASCIICODE_SPACE && UECSbuffer[i-1]==ASCIICODE_SPACE))
       {
         write=i;
         //find end of space
         for(j=write;j<=s_size;j++)
           {
+						//文字か改行コードがでてきたら終了
           if(UECSbuffer[j]>ASCIICODE_SPACE || UECSbuffer[j]=='\0')
             {
             read=j;
-            break;
+            break;		//場所をreadに確保して終了
             }
           }
         //copy str to fill space
+				//先ほど終了したところから入れていく（不必要なところを除く）
         for(j=read;j<=s_size;j++)
           {
           UECSbuffer[write+(j-read)]=UECSbuffer[j];
@@ -1929,19 +1994,26 @@ int i,j;
 //\r,\n is regarded to end
 //Attention:first one character is ignored without delete.
 //decode URL like %nn to char code
+//httpレスポンスから不要なところを削除
 //------------------------------------
 void HTTPFilterToBuffer(void)
 {
 
+//文字列バッファの長さを取得
 int s_size=strlen(UECSbuffer);
+//初期化と宣言
 int write=0,read=0;
 int i,j;
 
   //decode after %
+	//バッファに入っている文字列の長さだけ繰り返す
   for(i=1;i<s_size;i++)
   {
-    if((unsigned char)UECSbuffer[i]<ASCIICODE_SPACE || (UECSbuffer[i-1]=='&' && UECSbuffer[i]=='S' && UECSbuffer[i+1]=='=')){UECSbuffer[i]='\0';break;}
+		//スペースか、&S=がでてきたら終了
+    if((unsigned char)UECSbuffer[i]<ASCIICODE_SPACE || (UECSbuffer[i-1]=='&' && UECSbuffer[i]=='S' && UECSbuffer[i+1]=='='))
+		{UECSbuffer[i]='\0';break;}
     
+		//%が出て来たら
     if(UECSbuffer[i]=='%')
     	{
     	unsigned char decode=0;
@@ -2004,11 +2076,11 @@ int i,j;
 }
 
 //------------------------------------
-//指定した文字列を探す？
-//
-//
-//
-//
+//指定した文字列を探す
+//第一引数：比較する場所
+//第二引数：比較する文字列
+//第三引数：同じ文字があるところを保存する場所のポインタ
+//返り値：同じ文字列があるかないか
 bool UECSFindPGMChar(char* targetBuffer,const char *_romword_startStr,int *lastPos)
 {
 //初期化
@@ -2018,25 +2090,30 @@ int startPos=-1;
 int _targetBuffersize=strlen(targetBuffer);
 //引数のPROGMEMの長さを把握
 int _startStrsize=strlen_P(_romword_startStr);
-//
+//保存するバッファサイズより入力するサイズが大きいときは中止
 if(_targetBuffersize<_startStrsize){return false;}
 
 
 int i,j;
 
 //-------------start string check
+//引数で指定したアドレスから読み出す
 unsigned char startchr=pgm_read_byte(&_romword_startStr[0]);
+//入力された文字列の長さから
 for(i=0;i<_targetBuffersize-_startStrsize+1;i++)
 	{
 	//not hit
+	//同じ文字がないときは続きを行う
 	if(targetBuffer[i]!=startchr){continue;}
 	
 	//if hit 1 chr ,more check
 	for(j=0;j<_startStrsize;j++)
 			{
+			//同じ文字ではなくなるまで繰り返す
 			if(targetBuffer[i+j]!=pgm_read_byte(&_romword_startStr[j])){break;}//not hit!
 			}
 	//hit all chr
+	//最後までいったら終了
 	if(j==_startStrsize)
 		{
 		startPos=i;
@@ -2046,24 +2123,34 @@ for(i=0;i<_targetBuffersize-_startStrsize+1;i++)
 	}
 
 if(startPos<0){return false;}
+//処理の最後に残ったアドレスを保存する
 *lastPos=startPos+_startStrsize;
 return true;
 
 }
 
 //------------------------------------
+//値を取得する
+//第一引数：目的とする場所
+//
+//
+//第三引数：最後の目印にする文字（"\"）
+//
+//返り値：
 bool UECSGetValPGMStrAndChr(char* targetBuffer,const char *_romword_startStr, char end_asciiCode,short *shortValue,int *lastPos)
 {
+//ターゲットのバッファのサイズを把握
 int _targetBuffersize=strlen(targetBuffer);
 *lastPos=-1;
 int startPos=-1;
 int i;
+//指定した文字列がないときはfalseを返す
 if(!UECSFindPGMChar(targetBuffer,_romword_startStr,&startPos)){false;}
-
-
-
+//数字以外の時はfalse
 if(targetBuffer[startPos]<'0' || targetBuffer[startPos]>'9'){return false;}
+
 //------------end code check
+//目印(\)が見つからなかったら終了
 for(i=startPos;i<_targetBuffersize;i++)
 {
 if(targetBuffer[i]=='\0'){return false;}//no end code found
@@ -2072,14 +2159,15 @@ if(targetBuffer[i]==end_asciiCode)
 	
 }
 
-
+//ターゲットのバッファサイズを超えたらfalseを返す
 if(i>=_targetBuffersize){return false;}//not found
-*lastPos=i;
+*lastPos=i;		//最後に到達したアドレスを保存する
 
 //*shortValue=UECSAtoI(&targetBuffer[startPos]);
 long longVal;
 unsigned char decimal;
 int progPos;
+//
 if(!(UECSGetFixedFloatValue(&targetBuffer[startPos],&longVal,&decimal,&progPos))){return false;}
 
 if(decimal!=0){return false;}
@@ -2188,10 +2276,18 @@ return validFlag;
 
 }
 //------------------------------------------------------------------------------
+//floatをlong(?)に変換する
+//第一引数：読み出すアドレス
+//第二引数：変換した値を入れておくアドレス
+//第三引数：小数点の桁数
+//第四引数：最後のアドレス
+//返り値：変換ができたかどうか
 bool UECSGetFixedFloatValue(char* targetBuffer,long *longVal,unsigned char *decimal,int *lastPos)
 {
+//初期化
 *longVal=0;
 *decimal=0;
+//領域の確保
 int i;
 int validFlag=0;
 bool floatFlag=false;
@@ -2199,46 +2295,60 @@ char signFlag=1;
 unsigned long newValue=0;
 unsigned long prvValue=0;
 
-
+//おそらく16bitだということ
 for(i=0;i<MAX_DIGIT;i++)
 {
+//小数点を見つける
 if(targetBuffer[i]=='.')
 	{
+	//小数点が二重にあったら処理を中断してfalseを返す
 	if(floatFlag){return false;}//Multiple symbols error
-	floatFlag=true;
-	continue;
+	floatFlag=true;			//小数のフラグ
+	continue;						//スキップ
 	}
-else if(targetBuffer[i]=='-')
+else if(targetBuffer[i]=='-')			//マイナスがあるときは
 	{
+	//数字の後にマイナスがあるときは処理を中断してfalseを返す
 	if(validFlag){return false;}//Symbol is after number
+	//既にマイナスが代入されているときは間違って二回マイナスが入っている
 	if(signFlag<0){return false;}//Multiple symbols error
+	//マイナスがあるときはマイナスフラグを立てる
 	signFlag=-1;
-	continue;
+	continue;	//以下の処理をスキップ
 	}
+//0~9の間に入っている場合
 else if(targetBuffer[i]>='0' && targetBuffer[i]<='9')
 	{
-	
+	//validフラグを立てる
 	validFlag=true;
+	//小数の時は小数点の位置を確認（小数点何桁か把握する？）
 	if(floatFlag){(*decimal)++;}
+	
+	//10倍しながら数字を1の位から詰めていく（次の値を入れるために10倍する）
+	//10の位の重みづけを行っている
 	newValue=newValue*10;
 	newValue+=(targetBuffer[i]-'0');
+	
+	//オーバーフローしていないか確認する
 	if(prvValue>newValue || newValue>2147483646){return false;}//over flow!
+
 	prvValue=newValue;
 	continue;
 	}
 
-	break;
+	break;		//最後まで処理したらforを抜ける
 }
 
-*longVal=((long)newValue) * signFlag;
-*lastPos=i;
+*longVal=((long)newValue) * signFlag;		//符号を確認する
+*lastPos=i;			//小数点の桁数？
 
-return validFlag;
+return validFlag;		//変換ができたかどうか
 }
 
 
 //------------------------------------
 #if defined(_ARDUINIO_MEGA_SETTING)
+//
 void MemoryWatching()
 {
 if(UECStempStr20[MAX_TYPE_CHAR-1]!=0 || UECSbuffer[BUF_SIZE-1]!=0)
@@ -2247,26 +2357,36 @@ if(UECStempStr20[MAX_TYPE_CHAR-1]!=0 || UECSbuffer[BUF_SIZE-1]!=0)
 #endif
 //------------------------------------
 //In Safemode this function is not working properly because Web value will be reset.
+//セーフモードではwebの値がリセットされるため、この機能はうまく動作しない
+//webインターフェースに設定された値の書き換え（EEPROMの書き換え）
+//第一引数：書き換えたい変数のアドレス
+//第二引数：書き込む値
+//返り値：書き込み成功でtrue
 bool ChangeWebValue(signed long* data,signed long value)
 {
+//web画面で表示できる項数だけ繰り返す
 for(int i=0;i<U_HtmlLine;i++)
 {
+//書き換えたい変数のアドレスを把握する
 if(U_html[i].data==data)
 	{
+	//変更する値を書き込む
 	*(U_html[i].data)=value;
+	//EEPROMに書き込んでいく
 	UECS_EEPROM_writeLong(EEPROM_WEBDATA + i * 4, *(U_html[i].data));
 	return true;
 	}
 }
+//アドレスが想定通りでなければfalseを返す
 return false;
 }
 
 /********************************/
 /* 16521 Response   *************/
 /********************************/
-//CCMのサーチに対する反応？
-//引数：一時保存CCMのアドレス
-//返り値：
+//CCMのサーチに対する応答
+//引数：作成したUECSオブジェクトの保存場所
+//返り値：処理に成功したかどうか
 boolean UECSresCCMSearchAndSend(UECSTEMPCCM* _tempCCM){
 	//CCM provider search response
 	/*
@@ -2276,6 +2396,7 @@ boolean UECSresCCMSearchAndSend(UECSTEMPCCM* _tempCCM){
 	定期送信では送信実績のあるCCMのみ応答を返す
 	*/
   
+	//初期化
 	int i;
 	int progPos = 0;
 	int startPos = 0;
@@ -2283,27 +2404,33 @@ boolean UECSresCCMSearchAndSend(UECSTEMPCCM* _tempCCM){
 	short region=0;
 	short order=0;
 	
+	//XMLのヘッダー確認、なければ終了してfalseを返す
 	if(!UECSFindPGMChar(UECSbuffer,&UECSccm_XMLHEADER[0],&progPos)){return false;}
-	startPos+=progPos;
-
+	startPos+=progPos;		//保存されている場所を確認
+	//UECSのバージョンを確認する
 	if(!UECSFindPGMChar(&UECSbuffer[startPos],&UECSccm_UECSVER_E10[0],&progPos)){return false;}
 	startPos+=progPos;
-
+	//typeの確認の準備をする
 	if(!UECSFindPGMChar(&UECSbuffer[startPos],&UECSccm_CCMSEARCH[0],&progPos)){return false;}
 	startPos+=progPos;
 	
 	
 	//copy ccm type string
+	//ccmのtypeを把握する
 	for(i=0;i<MAX_TYPE_CHAR;i++)
 	{
+	//一時保存領域に入れていく
 	UECStempStr20[i]=UECSbuffer[startPos+i];
+	//「"」かnullの時は　nullを入れて終了
 	if(UECStempStr20[i]==ASCIICODE_DQUOT || UECStempStr20[i]=='\0')
 		{UECStempStr20[i]='\0';break;}
 	}
+	//終端の確認のためにnullを入れる
 	UECStempStr20[MAX_CCMTYPESIZE]='\0';
-	startPos=startPos+i;
+	startPos=startPos+i;		//アドレスの次に進める
 	
 	//Extract "room", "region", and "order". If not found, it is assumed to be zero.
+	//room"、"region"、"order "を抽出する。見つからない場合は、0とする。
 	UECSGetValPGMStrAndChr(&UECSbuffer[startPos],&UECSccm_CCMSEARCH_ROOM[0],'\"',&room,&progPos);
 	UECSGetValPGMStrAndChr(&UECSbuffer[startPos],&UECSccm_CCMSEARCH_REGION[0],'\"',&region,&progPos);
 	UECSGetValPGMStrAndChr(&UECSbuffer[startPos],&UECSccm_CCMSEARCH_ORDER[0],'\"',&order,&progPos);
@@ -2314,16 +2441,20 @@ boolean UECSresCCMSearchAndSend(UECSTEMPCCM* _tempCCM){
 	
 for(int id=0;id<U_MAX_CCM;id++)
 	{
+	//ccmを受信した時の動作
 	if(UECSCCMSimpleHitcheck(id,room,region,order))
 		{
 		//Serial.print(id);Serial.print("/");
 		//Serial.println(U_ccmList[id].typeStr);
 		//packet create
+
+		//バッファの初期化
 		ClearMainBuffer();
+			//ヘッダーの情報とccmの情報をバッファに加えていく
     	UDPAddPGMCharToBuffer(&(UECSccm_XMLHEADER[0]));
     	UDPAddPGMCharToBuffer(&(UECSccm_UECSVER_E10[0]));
     	UDPAddPGMCharToBuffer(&(UECSccm_CCMSERVER[0]));
-    	UDPAddCharToBuffer(UECStempStr20);
+    	UDPAddCharToBuffer(UECStempStr20);		//XMLのために文字列を加える
     	UDPAddPGMCharToBuffer(&(UECSccm_ROOMTXT[0]));
 		//room
 		UDPAddValueToBuffer(U_ccmList[id].baseAttribute[AT_ROOM]);
@@ -2339,22 +2470,33 @@ for(int id=0;id<U_MAX_CCM;id++)
     	UDPAddPGMCharToBuffer(&(UECSccm_CLOSETAG[0]));
 		//IP
 		char iptxt[20];
+		//セーフモードの時はipアドレスを192.168.1.7にする
 	    if(U_orgAttribute.status & STATUS_SAFEMODE)
 			{
 			UDPAddPGMCharToBuffer(&(UECSdefaultIPAddress[0]));
 			}
 		else
 			{
+				//セーフモードでない時は取得したipアドレスを文字列に変換する
 		    sprintf(iptxt, "%d.%d.%d.%d", U_orgAttribute.ip[0], U_orgAttribute.ip[1], U_orgAttribute.ip[2], U_orgAttribute.ip[3]);
-		    UDPAddCharToBuffer(iptxt);
+		    UDPAddCharToBuffer(iptxt);	//ipアドレスをバッファに加える
 		    }
-    	UDPAddPGMCharToBuffer(&(UECSccm_CCMSERVERCLOSE[0]));
+    	UDPAddPGMCharToBuffer(&(UECSccm_CCMSERVERCLOSE[0]));		//XMLを閉じるタグ
 
     	
     	//----------------------------------------------send 
+		//https://garretlab.web.fc2.com/arduino_reference/libraries/standard_libraries/Ethernet/EthernetUDP/beginPacket.html
+		//リモートコネクションに対してUDPデータの書き込みを開始する
+		//第一引数：リモートコネクションのホスト名
+		//第二引数：リモートコネクションのポート
+		//返り値：成功 true,  失敗 false
 		UECS_UDP16521.beginPacket(_tempCCM->address, 16521);
+		//リモート接続先にUDPデータを書き出す
+		//引数：送信するメッセージ
         UECS_UDP16521.write(UECSbuffer);
-	        if(UECS_UDP16521.endPacket()==0)
+				//リモートコネクションに対してUDPデータを書き込んだ後に呼ぶ。
+				//成功でtrue
+	        if(UECS_UDP16521.endPacket()==0)	//送信に失敗したらイーサネットの初期化
 	         	{
 	  			UECSresetEthernet(); //when udpsend failed,reset ethernet status
 	         	}
@@ -2362,7 +2504,7 @@ for(int id=0;id<U_MAX_CCM;id++)
 		}
 	
 	}
-
+		//無事に応答できたらtrueを返す
     return true;
 }
 //------------------------------------------------------------------------------
