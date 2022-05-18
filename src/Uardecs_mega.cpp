@@ -191,26 +191,28 @@ boolean UECSparseRec( struct UECSTEMPCCM *_tempCCM,int *matchCCMID){
 
 }
 //----------------------------------------------------------------------------
+//ccmを送信する
+//引数：
 void UECSCreateCCMPacketAndSend( struct UECSCCM* _ccm){
-ClearMainBuffer();
-UDPAddPGMCharToBuffer(&(UECSccm_XMLHEADER[0]));
+ClearMainBuffer();			//バッファのクリア
+//UECSccmを作成してバッファの中に詰めていく
+UDPAddPGMCharToBuffer(&(UECSccm_XMLHEADER[0]));		//ヘッダーを加える
 UDPAddPGMCharToBuffer(&(UECSccm_UECSVER_E10[0]));
 UDPAddPGMCharToBuffer(&(UECSccm_DATATYPE[0]));
 UDPAddCharToBuffer(_ccm->typeStr);
 
 for(int i=0;i<4;i++)
 	{
+	//ルーム、リージョン、オーダー、プライオリティの情報を詰めていく
 	UDPAddPGMCharToBuffer(UECSattrChar[i]); 
 	UDPAddValueToBuffer(_ccm->baseAttribute[i]);
 	}
-
-
-
+//小数を文字列に変換してccmに詰める？
 UDPAddPGMCharToBuffer(&(UECSccm_CLOSETAG[0]));
   dtostrf(((double)_ccm->value) / pow(10, _ccm->decimal), -1, _ccm->decimal, UECStempStr20);
 UDPAddCharToBuffer(UECStempStr20);
-UDPAddPGMCharToBuffer(&(UECSccm_IPTAG[0]));
-
+UDPAddPGMCharToBuffer(&(UECSccm_IPTAG[0]));			//タグを閉じる
+//セーフモードとそれ以外のモードでipアドレスを分ける
 if(U_orgAttribute.status & STATUS_SAFEMODE)
 	{
 	UDPAddPGMCharToBuffer(&(UECSdefaultIPAddress[0]));
@@ -220,13 +222,15 @@ else
 	sprintf(UECStempStr20, "%d.%d.%d.%d", U_orgAttribute.ip[0], U_orgAttribute.ip[1], U_orgAttribute.ip[2],U_orgAttribute.ip[3]);
 	UDPAddCharToBuffer(UECStempStr20);
 	}
-
+//ccm(XML)のタグを閉じる
 UDPAddPGMCharToBuffer(&(UECSccm_FOOTER1[0]));
 
 //send ccm
+	//16520ポート（UECSデフォルト）に対して書き込みを開始する
   UECS_UDP16520.beginPacket(_ccm->address, 16520);
+	//16520ポートにデータを書き出す
   UECS_UDP16520.write(UECSbuffer);
-  
+  //書き込みに失敗したらイーサネットを初期化する
   if(UECS_UDP16520.endPacket()==0)
   		{
   			UECSresetEthernet();//when udpsend failed,reset ethernet status
@@ -234,18 +238,23 @@ UDPAddPGMCharToBuffer(&(UECSccm_FOOTER1[0]));
 
 }
 
+//更新フラグを立てる？
+//
+//
 void UECSupRecCCM(UECSCCM* _ccm, UECSTEMPCCM* _ccmRec){
+	//フラグを初期化
   boolean success = false;
 
 	int i;
+	//属性の取り込み
 	for(i=0;i<MAX_ATTR_NUMBER;i++)
 		{_ccm->attribute[i] = _ccmRec->attribute[i];}
-
+	//ipアドレスの取り込み
 	for(i=0;i<MAX_IPADDRESS_NUMBER;i++)
 		{_ccm->address[i] = _ccmRec->address[i];}
 
-    
-    int dif_decimal=_ccm->decimal-_ccmRec->decimal;
+    //小数の桁数を把握
+    int dif_decimal= _ccm->decimal - _ccmRec->decimal;
     if(dif_decimal>=0){_ccm->value = _ccmRec->value*pow(10,dif_decimal);}
     else{_ccm->value = _ccmRec->value/pow(10,-dif_decimal);}
     
@@ -256,33 +265,42 @@ void UECSupRecCCM(UECSCCM* _ccm, UECSTEMPCCM* _ccmRec){
 
 }
 //---------------------------------------------------------------
-
+//ccmが更新されいないか確認する？※
+//
+//
+//
 void UECScheckUpDate(UECSTEMPCCM* _tempCCM, unsigned long _time,int startid){
-
+		//
     for(int i = startid; i < U_MAX_CCM; i++){
+			//受信頻度が0か送信モードの時は終了
       if(U_ccmList[i].ccmLevel == NONE || U_ccmList[i].sender == true){continue;}
       
-      
+					//ccmの設定内容が0があるか、初期設定でないときは終了
           if(!((_tempCCM->attribute[AT_ROOM] == 0 || U_ccmList[i].baseAttribute[AT_ROOM]==0 || _tempCCM->attribute[AT_ROOM] == U_ccmList[i].baseAttribute[AT_ROOM]) &&
                (_tempCCM->attribute[AT_REGI] == 0 || U_ccmList[i].baseAttribute[AT_REGI]==0 || _tempCCM->attribute[AT_REGI] == U_ccmList[i].baseAttribute[AT_REGI]) &&
                (_tempCCM->attribute[AT_ORDE] == 0 || U_ccmList[i].baseAttribute[AT_ORDE]==0 || _tempCCM->attribute[AT_ORDE] == U_ccmList[i].baseAttribute[AT_ORDE]))){continue;}
 
         //type 
+				//typeが異なる時は終了
         if(strcmp(U_ccmList[i].typeStr, _tempCCM->type) != 0){continue;}
-        
+					///変数の初期化？
           boolean up = false;
+								//送信頻度が定期的な更新出ない場合は終了
                 if(U_ccmList[i].ccmLevel==B_0 || U_ccmList[i].ccmLevel==B_1){up = true;}
+								//validityがfalseの時は更新？※
                 else if(!U_ccmList[i].validity){up = true;} //fresh ccm 
+								//入ってきたccmの方がプライオリティが低ければ更新？
                 else if(_tempCCM->attribute[AT_PRIO] < U_ccmList[i].attribute[AT_PRIO])
-                    {up = true;}//lower priority number is strong
+                    {up = true;}//lower priority number is strong　低い数字の方が強い
                 else{
-					
+									//ccmの設定が同じであれば
                   if(_tempCCM->attribute[AT_ROOM] == U_ccmList[i].attribute[AT_ROOM]){
                     if(_tempCCM->attribute[AT_REGI] == U_ccmList[i].attribute[AT_REGI]){
                       if(_tempCCM->attribute[AT_ORDE] == U_ccmList[i].attribute[AT_ORDE]){
                         
                         //if(_tempCCM->address <= U_ccmList[i].address)
                         //convert big endian
+												//アドレスを比較する
                         unsigned long address_t=_tempCCM->address[0];
                         address_t=(address_t<<8)|_tempCCM->address[1];
                         address_t=(address_t<<8)|_tempCCM->address[2];
@@ -291,20 +309,23 @@ void UECScheckUpDate(UECSTEMPCCM* _tempCCM, unsigned long _time,int startid){
                         address_b=(address_b<<8)|U_ccmList[i].address[1];
                         address_b=(address_b<<8)|U_ccmList[i].address[2];
                         address_b=(address_b<<8)|U_ccmList[i].address[3];
-                        
+                        //何を意味しているかよくわからない？※
                         if(address_t<=address_b)
                         {up = true;} 
                       }
+											//オーダーが0か設定と同じであれば更新
                       else if (_tempCCM->attribute[AT_ORDE] == U_ccmList[i].baseAttribute[AT_ORDE] || U_ccmList[i].baseAttribute[AT_ORDE]==0)
                       {up = true;}                         
                     }
+										//リージョンが0か設定と等しければ更新
                     else if (_tempCCM->attribute[AT_REGI] == U_ccmList[i].baseAttribute[AT_REGI] || U_ccmList[i].baseAttribute[AT_REGI]==0)
                     {up = true;}                       
                   }
+									//ルームが0か設定と等しければ更新
                   else if (_tempCCM->attribute[AT_ROOM] == U_ccmList[i].baseAttribute[AT_ROOM]  || U_ccmList[i].baseAttribute[AT_ROOM]==0)
                   {up = true;} 
                 }
-
+								//フラグが立っていれば更新？
                 if(up){UECSupRecCCM(&U_ccmList[i], _tempCCM);}
       }  
 }
@@ -312,28 +333,34 @@ void UECScheckUpDate(UECSTEMPCCM* _tempCCM, unsigned long _time,int startid){
 /********************************/
 /* 16529 Response   *************/
 /********************************/
+//スキャンに対する応答
 
+//測定値以外のノードの情報をバッファに詰め込む
+//返り値：ccmscanかかnodescanに返信した時はtrue
 boolean UECSresNodeScan(){
-   	int i;
+	int i;
 	int progPos = 0;
 	int startPos = 0;
-	
-	if(!UECSFindPGMChar(UECSbuffer,&UECSccm_XMLHEADER[0],&progPos)){return false;}
+	//ヘッダーがあるか確認する
+	if(!UECSFindPGMChar(UECSbuffer,&UECSccm_XMLHEADER[0],&progPos)){
+		return false;
+	}
+	//アドレスの確認
 	startPos+=progPos;
-
-	if(!UECSFindPGMChar(&UECSbuffer[startPos],&UECSccm_UECSVER_E10[0],&progPos))
-	{
+	//バージョンの確認
+	if(!UECSFindPGMChar(&UECSbuffer[startPos],&UECSccm_UECSVER_E10[0],&progPos)){
 		//other ver
 		return false;
 	}
 	startPos+=progPos;
 	
 	//NODESCAN
-	if(UECSFindPGMChar(&UECSbuffer[startPos],&UECSccm_NODESCAN1[0],&progPos) || UECSFindPGMChar(&UECSbuffer[startPos],&UECSccm_NODESCAN2[0],&progPos))
-	{
-		
-    //NODESCAN response
-	ClearMainBuffer();
+	//nodescanに対する応答（タイプ、ルーム、リージョン、オーダーが一致した場合に応答）
+	if(UECSFindPGMChar(&UECSbuffer[startPos],&UECSccm_NODESCAN1[0],&progPos) || UECSFindPGMChar(&UECSbuffer[startPos],&UECSccm_NODESCAN2[0],&progPos)){
+	
+    //NODESCAN response ノードスキャンへの反応
+		ClearMainBuffer();	//バッファのクリア
+		//ccmを作成してバッファに詰めていく
     UDPAddPGMCharToBuffer(&(UECSccm_XMLHEADER[0]));
     UDPAddPGMCharToBuffer(&(UECSccm_UECSVER_E10[0]));
     UDPAddPGMCharToBuffer(&(UECSccm_NODENAME[0])); 
@@ -343,205 +370,209 @@ boolean UECSresNodeScan(){
     UDPAddPGMCharToBuffer(&(UECSccm_UECSID[0])); 
     UDPAddPGMCharToBuffer(&(U_uecsid[0]));
     UDPAddPGMCharToBuffer(&(UECSccm_UECSID_IP[0]));
-    
-    
-    
-    if(U_orgAttribute.status & STATUS_SAFEMODE)
-		{
-		UDPAddPGMCharToBuffer(&(UECSdefaultIPAddress[0]));
-		}
-	else
-		{
+    //セーフモードとそれ以外ではipアドレスを切り替える 
+    if(U_orgAttribute.status & STATUS_SAFEMODE){
+			UDPAddPGMCharToBuffer(&(UECSdefaultIPAddress[0]));
+		}else{
 	    sprintf(UECStempStr20, "%d.%d.%d.%d", U_orgAttribute.ip[0], U_orgAttribute.ip[1], U_orgAttribute.ip[2], U_orgAttribute.ip[3]);
 	    UDPAddCharToBuffer(UECStempStr20);
-	    }
-    
+		}
+    //Macアドレスをバッファに入れる
     UDPAddPGMCharToBuffer(&(UECSccm_MAC[0]));
     sprintf(UECStempStr20, "%02X%02X%02X%02X%02X%02X", U_orgAttribute.mac[0], U_orgAttribute.mac[1], U_orgAttribute.mac[2], U_orgAttribute.mac[3], U_orgAttribute.mac[4], U_orgAttribute.mac[5]);
     UDPAddCharToBuffer(UECStempStr20);
     UDPAddPGMCharToBuffer(&(UECSccm_NODECLOSE[0]));
-    
+    ///成功したらtrueを返す
     return true;
 	}
     
-	//CCMSCAN
-	if(UECSFindPGMChar(&UECSbuffer[startPos],&UECSccm_CCMSCAN[0],&progPos))
-	{
 
-		
-	short pageNum=0;
-	startPos+=progPos;
-	
-	
-	if(UECSGetValPGMStrAndChr(&UECSbuffer[startPos],&UECSccm_PAGE[0],'\"',&pageNum,&progPos))//format of page number written type
-		{
+	//CCMSCAN
+	//ccmscanの確認　想定通りでないときは中断
+	if(UECSFindPGMChar(&UECSbuffer[startPos],&UECSccm_CCMSCAN[0],&progPos)){		
+		short pageNum=0;
 		startPos+=progPos;
-		//check close tag
-		if(!(UECSFindPGMChar(&UECSbuffer[startPos],&UECSccm_CCMSCANCLOSE2[0],&progPos))){return false;}
+		//分割数の把握（UDPなので1回の送信では480バイト以下の必要がある）
+		//ダブルクォーテーションがあるときの処理
+		if(UECSGetValPGMStrAndChr(&UECSbuffer[startPos],&UECSccm_PAGE[0],'\"',&pageNum,&progPos)){//format of page number written type
+			startPos+=progPos;
+			//check close tag　閉じかっこの確認
+			if(!(UECSFindPGMChar(&UECSbuffer[startPos],&UECSccm_CCMSCANCLOSE2[0],&progPos))){
+				return false
+			}
+		//ダブルクォーテーションがないときの閉じかっこの確認
+		}else if(UECSFindPGMChar(&UECSbuffer[startPos],&UECSccm_CCMSCANCLOSE0[0],&progPos)){ //format of page number abridged type
+			pageNum=1;
+		}else{
+			return false;
 		}
-	else if(UECSFindPGMChar(&UECSbuffer[startPos],&UECSccm_CCMSCANCLOSE0[0],&progPos)) //format of page number abridged type
-		{
-		pageNum=1;
-		}
-	else
-		{return false;}
 	
-	//CCMSCAN response
-	ClearMainBuffer();
-	UDPAddPGMCharToBuffer(&(UECSccm_XMLHEADER[0]));
-	UDPAddPGMCharToBuffer(&(UECSccm_UECSVER_E10[0]));
+		//CCMSCAN response
+		//ccmスキャンに対する応答
+		ClearMainBuffer();			//バッファのクリア
+		///ccmを作成してバッファに詰めていく
+		UDPAddPGMCharToBuffer(&(UECSccm_XMLHEADER[0]));
+		UDPAddPGMCharToBuffer(&(UECSccm_UECSVER_E10[0]));
     UDPAddPGMCharToBuffer(&(UECSccm_CCMNUM[0]));
 	
-	//count enabled ccm
-	short enabledCCMNum=0;
-	short returnCCMID=-1;
-		for(i = 0; i < U_MAX_CCM; i++)
-		{
-	    if(U_ccmList[i].ccmLevel != NONE)
-	    	{
-	    	enabledCCMNum++;
-	    	if(enabledCCMNum==pageNum){returnCCMID=i;}
-	    	}
-	    
-	    
-	    }
-	    
-
+		//count enabled ccm
+		short enabledCCMNum=0;
+		short returnCCMID=-1;
+		//指定した要素の数だけ繰り返す
+		for(i = 0; i < U_MAX_CCM; i++){
+			//送信頻度が0でないとき
+	    if(U_ccmList[i].ccmLevel != NONE){
+	    	enabledCCMNum++;	//繰り返し回数？
+	    	if(enabledCCMNum==pageNum){		//繰り返した回数がページ数と等しければ
+					returnCCMID=i;		//おそらくチェック用
+				}
+			}  
+		}
+	  
+		//繰り返しがなければfalseで終了  
+		if(enabledCCMNum==0 || returnCCMID<0){
+			return false;
+		}//page num over
 	
-	if(enabledCCMNum==0 || returnCCMID<0){return false;}//page num over
-	
-	UDPAddValueToBuffer(pageNum);
-	UDPAddPGMCharToBuffer(&(UECSccm_TOTAL[0]));
-	UDPAddValueToBuffer(enabledCCMNum);
+		//返信する内容をバッファに詰めていく
+		UDPAddValueToBuffer(pageNum);		//ページ番号をバッファに詰める
+		UDPAddPGMCharToBuffer(&(UECSccm_TOTAL[0]));
+		UDPAddValueToBuffer(enabledCCMNum);
     UDPAddPGMCharToBuffer(&(UECSccm_CLOSETAG[0]));
-	UDPAddValueToBuffer(1);//Column number is always 1
+		UDPAddValueToBuffer(1);//Column number is always 1
     UDPAddPGMCharToBuffer(&(UECSccm_CCMNO[0]));
-	UDPAddValueToBuffer(pageNum);//page number = ccm number
+		UDPAddValueToBuffer(pageNum);//page number = ccm number
 	
-	
-	for(i=0;i<3;i++)
-	{
-	 UDPAddPGMCharToBuffer(UECSattrChar[i]);
-	 UDPAddValueToBuffer(U_ccmList[returnCCMID].baseAttribute[i]);
-	}
-	 UDPAddPGMCharToBuffer(UECSattrChar[AT_PRIO]);
-	 UDPAddValueToBuffer(U_ccmList[returnCCMID].baseAttribute[AT_PRIO]);
-
+		for(i=0;i<3;i++){
+			//ルーム、リージョン、オーダー、プライオリティの情報を詰めていく
+			UDPAddPGMCharToBuffer(UECSattrChar[i]);
+			UDPAddValueToBuffer(U_ccmList[returnCCMID].baseAttribute[i]);
+		}
+		//プライオリティを詰める
+		UDPAddPGMCharToBuffer(UECSattrChar[AT_PRIO]);
+		UDPAddValueToBuffer(U_ccmList[returnCCMID].baseAttribute[AT_PRIO]);
 	 
-	 UDPAddPGMCharToBuffer(&(UECSccm_CAST[0]));
-	 UDPAddValueToBuffer(U_ccmList[returnCCMID].decimal);
-	 UDPAddPGMCharToBuffer(&(UECSccm_UNIT[0]));                          
-	 UDPAddPGMCharToBuffer((U_ccmList[returnCCMID].unit));
-	 UDPAddPGMCharToBuffer(&(UECSccm_SR[0]));
-     if(U_ccmList[returnCCMID].sender){
-     	 		UDPAddPGMCharToBuffer(UECSTxtPartS);
-              }
-              else{
-     	 		UDPAddPGMCharToBuffer(UECSTxtPartR);
-              }              
-	 UDPAddPGMCharToBuffer(&(UECSccm_LV[0]));                          
-	 UDPAddPGMCharToBuffer((UECSCCMLEVEL[U_ccmList[returnCCMID].ccmLevel]));
-	 UDPAddPGMCharToBuffer(&(UECSccm_CLOSETAG[0]));
-	 UDPAddCharToBuffer(U_ccmList[returnCCMID].typeStr);
-	 UDPAddPGMCharToBuffer(&(UECSccm_CCMRESCLOSE[0]));  
+	 	//メタ情報を詰めていく
+		UDPAddPGMCharToBuffer(&(UECSccm_CAST[0]));
+		UDPAddValueToBuffer(U_ccmList[returnCCMID].decimal);
+		UDPAddPGMCharToBuffer(&(UECSccm_UNIT[0]));                          
+		UDPAddPGMCharToBuffer((U_ccmList[returnCCMID].unit));
+		UDPAddPGMCharToBuffer(&(UECSccm_SR[0]));		
+		if(U_ccmList[returnCCMID].sender){
+			UDPAddPGMCharToBuffer(UECSTxtPartS);
+		}else{
+			UDPAddPGMCharToBuffer(UECSTxtPartR);
+		}              
+		UDPAddPGMCharToBuffer(&(UECSccm_LV[0]));                          
+		UDPAddPGMCharToBuffer((UECSCCMLEVEL[U_ccmList[returnCCMID].ccmLevel]));
+		UDPAddPGMCharToBuffer(&(UECSccm_CLOSETAG[0]));
+		UDPAddCharToBuffer(U_ccmList[returnCCMID].typeStr);
+		UDPAddPGMCharToBuffer(&(UECSccm_CCMRESCLOSE[0]));  
     
-    return true;
-    }
-    
-    return false;
-  
-  
+    return true;		//バッファに詰め終わったら true 
+	}
+	return false;  //ccmscanもnodescanも届いていないときはfalse
 }
 
 
 //------------------------------------------------------------------
-void UECSautomaticSendManager()
-{
 /*
 UDP transmission load balancing
 Improved UDP send timing not to be concentrated in Ver2.0 or later.
 Packets sent at 10-second and 60-second intervals were sent together in past versions, but are sent separately in the new version.
 Transmission timing is distributed according to the order of registration of the lower one of the IP addresses and the CCM.
 However, this load balancing is ineffective for packets sent every second.
+UDP送信のロードバランシング Ver2.0以降に集中しないよう、UDP送信タイミングを改善。
+10秒間隔と60秒間隔で送信するパケットを、過去のバージョンではまとめて送信していましたが、新バージョンでは別々に送信するようにしました。
+送信タイミングは，IPアドレスの下位1つとCCMの登録順によって分散される．ただし，1秒間隔で送信されるパケットには，この負荷分散の効果はない．
 */
-int timing_count;
+//ロードバランサー？
+void UECSautomaticSendManager(){
 
-for(int id=0;id<U_MAX_CCM;id++)
-	{
-  if(U_ccmList[id].ccmLevel == NONE || !U_ccmList[id].sender){continue;}
+	int timing_count;
+	//ccm_dummyの数だけ繰り返す
+	for(int id=0;id<U_MAX_CCM;id++){
+		//受信モードでないことと、送信頻度が0でないことを確認
+		if(U_ccmList[id].ccmLevel == NONE || !U_ccmList[id].sender){
+			continue;
+		}
 
-  	//Timeout judgment of the sending CCM
-   	if(U_ccmList[id].flagStimeRfirst == true)
-	   		{
-	   		U_ccmList[id].recmillis=0;
-    		U_ccmList[id].validity=true;
-    		}
-     else
-     	{
-     	if((U_ccmList[id].ccmLevel==A_1S_0 || U_ccmList[id].ccmLevel==A_1S_1)&& U_ccmList[id].recmillis>1000){U_ccmList[id].validity=false;}
-     	else if((U_ccmList[id].ccmLevel==A_10S_0 || U_ccmList[id].ccmLevel==A_10S_1)&& U_ccmList[id].recmillis>10000){U_ccmList[id].validity=false;}
-     	else if((U_ccmList[id].ccmLevel==A_1M_0 || U_ccmList[id].ccmLevel==A_1M_1)&& U_ccmList[id].recmillis>60000){U_ccmList[id].validity=false;}
-     	}
-   	if(U_ccmList[id].recmillis<36000000){U_ccmList[id].recmillis+=1000;}
+		//Timeout judgment of the sending CCM
+		//送信の一時停止状態でないことを確認する falseで一時停止
+		if(U_ccmList[id].flagStimeRfirst == true){
+			U_ccmList[id].recmillis=0;		//最後に送信してからの経過時間
+			U_ccmList[id].validity=true;	//送信実績
+		}else{		//flagStimeRfirstがfalseのとき
+			//送信頻度と実際のインターバルを比較して送信実績の確認
+			//1秒に1回の送信頻度なのに前回送信から1秒以上経過した時は送信実績をfalseにする
+			if((U_ccmList[id].ccmLevel==A_1S_0 || U_ccmList[id].ccmLevel==A_1S_1)&& U_ccmList[id].recmillis>1000){
+				U_ccmList[id].validity=false;
+			}else if((U_ccmList[id].ccmLevel==A_10S_0 || U_ccmList[id].ccmLevel==A_10S_1)&& U_ccmList[id].recmillis>10000){
+				U_ccmList[id].validity=false;
+			}else if((U_ccmList[id].ccmLevel==A_1M_0 || U_ccmList[id].ccmLevel==A_1M_1)&& U_ccmList[id].recmillis>60000){
+				U_ccmList[id].validity=false;
+			}
+		}
+		//経過時間が10時間より小さければ1秒足す
+		if(U_ccmList[id].recmillis<36000000){
+			U_ccmList[id].recmillis+=1000;
+		}
 
 		//Determination of CCM transmission timing
-	  timing_count=U_orgAttribute.ip[3]+id;
-	  if((U_ccmList[id].ccmLevel == A_10S_1 || U_ccmList[id].ccmLevel == A_1M_1 ) && U_ccmList[id].old_value!=U_ccmList[id].value)
-  	  {
-  	  U_ccmList[id].flagStimeRfirst = true;
-  	  }
-      else if(U_ccmList[id].ccmLevel == A_1S_0 || U_ccmList[id].ccmLevel == A_1S_1 || U_ccmList[id].ccmLevel == S_1S_0)
-      {
-        U_ccmList[id].flagStimeRfirst = true;
-       }
-       else if((UECSsyscounter60s % 10 == (timing_count % 10)) && (U_ccmList[id].ccmLevel == A_10S_0 || U_ccmList[id].ccmLevel == A_10S_1))
-       {
-         U_ccmList[id].flagStimeRfirst = true;
-       }
-       else if(UECSsyscounter60s == (timing_count % 60) && (U_ccmList[id].ccmLevel == A_1M_0 || U_ccmList[id].ccmLevel == A_1M_1 || U_ccmList[id].ccmLevel == S_1M_0))
-       {
-         U_ccmList[id].flagStimeRfirst = true;
-       }
-       else
-       {
-         U_ccmList[id].flagStimeRfirst = false;
-       }
-       	U_ccmList[id].old_value=U_ccmList[id].value;
+		//ccmの送信タイミングの判定
+		timing_count=U_orgAttribute.ip[3]+id;
+		//送信間隔未満でも値が変動したら送信
+		if((U_ccmList[id].ccmLevel == A_10S_1 || U_ccmList[id].ccmLevel == A_1M_1 ) && U_ccmList[id].old_value!=U_ccmList[id].value){
+			U_ccmList[id].flagStimeRfirst = true;
+		//送信間隔が1秒の時は送信
+		}else if(U_ccmList[id].ccmLevel == A_1S_0 || U_ccmList[id].ccmLevel == A_1S_1 || U_ccmList[id].ccmLevel == S_1S_0){
+			U_ccmList[id].flagStimeRfirst = true;
+		//時間を把握するカウンターで10秒ごとに10秒間隔の頻度のモノを送信
+		}else if((UECSsyscounter60s % 10 == (timing_count % 10)) && (U_ccmList[id].ccmLevel == A_10S_0 || U_ccmList[id].ccmLevel == A_10S_1)){
+			U_ccmList[id].flagStimeRfirst = true;
+		//時間を把握するカウンターで1分毎に1分間隔のモノを送信
+		}else if(UECSsyscounter60s == (timing_count % 60) && (U_ccmList[id].ccmLevel == A_1M_0 || U_ccmList[id].ccmLevel == A_1M_1 || U_ccmList[id].ccmLevel == S_1M_0)){
+			U_ccmList[id].flagStimeRfirst = true;
+		//それ以外のモノは送信の一時停止
+		}else{
+			U_ccmList[id].flagStimeRfirst = false;
+		}
+		U_ccmList[id].old_value=U_ccmList[id].value;	//値の変動を確認するため
 	}
 }
-//----------------------------------------------------------------------
-void UECSautomaticValidManager(unsigned long td)
-{
-for(int id=0;id<U_MAX_CCM;id++)
-	{
-  if(U_ccmList[id].ccmLevel == NONE|| U_ccmList[id].sender){continue;}
-    	
-    	
-    	if(U_ccmList[id].recmillis>86400000)//over 24hour
-    		{
-    			continue;//stop count
-    		}
 
-  		U_ccmList[id].recmillis+=td;//count time(ms) since last recieved
+//----------------------------------------------------------------------
+//受信パケットが有効か確認する
+//引数：前回のループからの経過時間
+void UECSautomaticValidManager(unsigned long td){
+	//ccm_dummyで指定した回数だけ繰り返す
+	for(int id=0;id<U_MAX_CCM;id++){
+		//受信モードの時はスキップ（次のccmにいく）
+  	if(U_ccmList[id].ccmLevel == NONE|| U_ccmList[id].sender){
+			continue;
+		}
+		//24時間を超えたらスキップ
+		if(U_ccmList[id].recmillis>86400000){		//over 24hour
+    	continue;//stop count
+    }
+		//経過時間の把握
+		U_ccmList[id].recmillis+=td;//count time(ms) since last recieved
   		
-  	  unsigned long validmillis=0;
-  	  if(U_ccmList[id].ccmLevel == A_1S_0 || U_ccmList[id].ccmLevel == A_1S_1 || U_ccmList[id].ccmLevel == S_1S_0)
-  	  {
-	    validmillis = 3000;  
-  		}
-	  	else if(U_ccmList[id].ccmLevel == A_10S_0 || U_ccmList[id].ccmLevel == A_10S_1)
-	  	{
+		unsigned long validmillis=0;
+		//1秒のレベルだと受信した情報が3秒間有効
+		if(U_ccmList[id].ccmLevel == A_1S_0 || U_ccmList[id].ccmLevel == A_1S_1 || U_ccmList[id].ccmLevel == S_1S_0){
+	    validmillis = 3000;
+		//10秒のレベルだと受信した情報が30秒間有効
+		}else if(U_ccmList[id].ccmLevel == A_10S_0 || U_ccmList[id].ccmLevel == A_10S_1){
     	validmillis = 30000;
-  		}
-  		else if(U_ccmList[id].ccmLevel == A_1M_0 || U_ccmList[id].ccmLevel == A_1M_1 || U_ccmList[id].ccmLevel == S_1M_0)
-  		{
+  	//1分のレベルだと受信した情報が3分間有効
+		}else if(U_ccmList[id].ccmLevel == A_1M_0 || U_ccmList[id].ccmLevel == A_1M_1 || U_ccmList[id].ccmLevel == S_1M_0){
     	validmillis = 180000;
  	 	}
-    	
-       if(U_ccmList[id].recmillis > validmillis || U_ccmList[id].flagStimeRfirst == false)
-       {
-         U_ccmList[id].validity = false;  
-       }
+    //パケット受信の有効時間を過ぎるかflagStimeRfirstがfalseの時はvalidをfalseにする
+		if(U_ccmList[id].recmillis > validmillis || U_ccmList[id].flagStimeRfirst == false){
+			U_ccmList[id].validity = false;  
+		}
 	}
 }
 
@@ -551,82 +582,72 @@ for(int id=0;id<U_MAX_CCM;id++)
 //EEPROMに書き込む
 //第一引数：書き込む場所のアドレス
 //第二引数：書き込みたいデータのサイズ
-void UECS_EEPROM_writeLong(int ee, long value)
-{
-		//必要な容量の把握？（書き込む文字数？）
-    byte* p = (byte*)(void*)&value;
-		//
-    for (unsigned int i = 0; i < sizeof(value); i++)
-    {
-		//書き込まれている内容はスキップする
-    if(EEPROM.read(ee)!=p[i])//same value skip
-    		{
-    		EEPROM.write(ee, p[i]);	//書き込む
-    		}
-    		ee++;
+void UECS_EEPROM_writeLong(int ee, long value){
+	//必要な容量の把握？（書き込む文字数？）
+	byte* p = (byte*)(void*)&value;
+	//書き込み
+	for (unsigned int i = 0; i < sizeof(value); i++){
+		if(EEPROM.read(ee)!=p[i]){	//same value skip　書き込まれている内容はスキップする
+			EEPROM.write(ee, p[i]);	//書き込む
+		}
+		ee++;
 	}
-
 }
 
 //EEPROMから読み込む　※
 //引数：読み込みを開始する位置
 //返り値：読み込んだデータのアドレス？
-long UECS_EEPROM_readLong(int ee)
-{
-		//
-    long value = 0;
-    byte* p = (byte*)(void*)&value;
-    for (unsigned int i = 0; i < sizeof(value); i++)
-	  *p++ = EEPROM.read(ee++);		//読み込んだ値を用意した領域に入れていく
-
-    return value;		//読み込んだ値が入っているポインタ
+long UECS_EEPROM_readLong(int ee){
+	long value = 0;
+	byte* p = (byte*)(void*)&value;
+	for (unsigned int i = 0; i < sizeof(value); i++)
+	*p++ = EEPROM.read(ee++);		//読み込んだ値を用意した領域に入れていく
+	return value;		//読み込んだ値？
 }
+
 //-----------------------------------------------------------new
-//
+//引数をhtmlに書き込む
+//書き込みたい値
 void HTTPsetInput(short _value){		//表示するアドレスの文字列を作成する
     HTTPAddPGMCharToBuffer(&(UECShtmlInputText[0]));		//文字列の追加
-    HTTPAddValueToBuffer(_value);
-    HTTPAddPGMCharToBuffer(&(UECShtmlINPUTCLOSE3[0]));
+    HTTPAddValueToBuffer(_value);		//バッファに保存
+    HTTPAddPGMCharToBuffer(&(UECShtmlINPUTCLOSE3[0]));	//閉じかっこ
 }
 //-----------------------------------------------------------new
 //ipアドレスをwebブラウザに表示する
 //引数：ipアドレスの配列
-void HTTPprintIPtoHtml(byte address[])
-{
+void HTTPprintIPtoHtml(byte address[]){
 	//ex)255:255:255:255<br>　になる
-  for(int i = 0; i < 3; i++)
-  {
+  for(int i = 0; i < 3; i++){
 	 //表示するipアドレスを詰め込む
    HTTPsetInput(address[i]);
    HTTPAddPGMCharToBuffer(UECSTxtPartColon);		//ipアドレスを:で繋いでいく
   }      
   HTTPsetInput(address[3]);
   HTTPAddPGMCharToBuffer(&(UECSbtrag[0]));			//改行コード
-
 }
 //-----------------------------------------------------------new
 //---------------------------------------------------------------
 //
 //引数：
 void HTTPPrintRedirect(char page){
- ClearMainBuffer();		//バッファの初期化
- //表示する文字列を作成していく
- HTTPAddPGMCharToBuffer(&(UECShttpHead200_OK[0]));
- HTTPAddPGMCharToBuffer(&(UECShttpHeadContentType[0]));
- HTTPAddPGMCharToBuffer(&(UECShttpHeadConnection[0]));
- HTTPAddPGMCharToBuffer(&(UECShtmlHEADER[0]));
- //表示するhtmlを作成していく
- if(page==3)
- 	{
- 	HTTPAddPGMCharToBuffer(&(UECShtmlREDIRECT3[0]));
- 	}
- else
- 	{
+	ClearMainBuffer();		//バッファの初期化
+	//表示する文字列を作成していく
+	HTTPAddPGMCharToBuffer(&(UECShttpHead200_OK[0]));
+	HTTPAddPGMCharToBuffer(&(UECShttpHeadContentType[0]));
+	HTTPAddPGMCharToBuffer(&(UECShttpHeadConnection[0]));
+	HTTPAddPGMCharToBuffer(&(UECShtmlHEADER[0]));
+	//表示するhtmlを作成していく
+	if(page==3){
+ 		HTTPAddPGMCharToBuffer(&(UECShtmlREDIRECT3[0]));
+ 	}else{
 	 HTTPAddPGMCharToBuffer(&(UECShtmlREDIRECT1[0]));
  	}
- 
- HTTPCloseBuffer();			//uecsクライアントに表示
+ HTTPCloseBuffer();			//バッファをクライアントに表示する
 }
+
+
+
 /*
 void HTTPPrintRedirectP3(){
  ClearMainBuffer();
@@ -638,34 +659,31 @@ void HTTPPrintRedirectP3(){
  HTTPCloseBuffer();
 }*/
 //-----------------------------------------------------------
-//html用のヘッダーの作成
+//html用のヘッダーの作成してバッファに入れていく
 void HTTPPrintHeader(){
- ClearMainBuffer();		//バッファのクリア
+ 	ClearMainBuffer();		//バッファのクリア
+	//ヘッダー用のhtmを作成していく 
+	HTTPAddPGMCharToBuffer(&(UECShttpHead200_OK[0]));
+	HTTPAddPGMCharToBuffer(&(UECShttpHeadContentType[0]));
+	HTTPAddPGMCharToBuffer(&(UECShttpHeadConnection[0]));
+ 	HTTPAddPGMCharToBuffer(&(UECShtmlHEADER[0]));
+ 	HTTPAddPGMCharToBuffer(&(UECShtmlNORMAL[0]));
 
-//ヘッダー用のhtmを作成していく 
-HTTPAddPGMCharToBuffer(&(UECShttpHead200_OK[0]));
-HTTPAddPGMCharToBuffer(&(UECShttpHeadContentType[0]));
-HTTPAddPGMCharToBuffer(&(UECShttpHeadConnection[0]));
- 
- HTTPAddPGMCharToBuffer(&(UECShtmlHEADER[0]));
- HTTPAddPGMCharToBuffer(&(UECShtmlNORMAL[0]));
-
- //メモリがリークしてる時　※
- //ビット演算？　詳しく調べる必要がある https://www.javadrive.jp/cstart/ope/index6.html
- //両方の同じビットが１の時だけ１になる
- //ビットごとにステータスが割り当てられている（ヘッダー参照）
- if(U_orgAttribute.status & STATUS_MEMORY_LEAK)
- 	{HTTPAddPGMCharToBuffer(&(UECShtmlATTENTION_INTERR[0]));}		//err表示
-	//safemodeの時
- if(U_orgAttribute.status & STATUS_SAFEMODE)
- 	{HTTPAddPGMCharToBuffer(&(UECShtmlATTENTION_SAFEMODE[0]));}		//safemode表示
-
- HTTPAddPGMCharToBuffer(&(U_name[0]));
- 
-  HTTPAddPGMCharToBuffer(&(UECShtmlTITLECLOSE[0]));
-  
+	//メモリがリークしてる時　※
+	//ビット演算？　詳しく調べる必要がある https://www.javadrive.jp/cstart/ope/index6.html
+	//両方の同じビットが１の時だけ１になる
+	//ビットごとにステータスが割り当てられている（ヘッダー参照）
+	if(U_orgAttribute.status & STATUS_MEMORY_LEAK){		//エラー表示
+		HTTPAddPGMCharToBuffer(&(UECShtmlATTENTION_INTERR[0]));
+	}	
+ 	if(U_orgAttribute.status & STATUS_SAFEMODE){		//safemodeの表示
+		 HTTPAddPGMCharToBuffer(&(UECShtmlATTENTION_SAFEMODE[0]));
+	}	
+ 	HTTPAddPGMCharToBuffer(&(U_name[0]));
+  HTTPAddPGMCharToBuffer(&(UECShtmlTITLECLOSE[0])); 
   HTTPAddPGMCharToBuffer(&(UECShtml1A[0]));   // </script></HEAD><BODY><CENTER><H1>
 }
+
 //-----------------------------------------------------------
 //ccmが送信できなかった時に表示されるページ？
 void HTTPsendPageError(){
@@ -677,57 +695,54 @@ void HTTPsendPageError(){
   HTTPCloseBuffer();		//uecsクライアントに表示
 }
 //-------------------------------------------------------------
-//GETに対して返すページ？
+//ページを作成してクライアントに表示する（バッファはクリアされない）
 void HTTPsendPageIndex(){
-
   HTTPPrintHeader();		//ヘッダーの作成
+	//表示ページを作成してUECSバッファに保存する
   HTTPAddCharToBuffer(U_nodename);
   HTTPAddPGMCharToBuffer(&(UECShtmlH1CLOSE[0]));
   HTTPAddPGMCharToBuffer(&(UECShtmlIndex[0]));
   HTTPAddPGMCharToBuffer(&(UECShtmlHR[0]));
-  HTTPAddPGMCharToBuffer(&(U_footnote[0]));		//空？
+  HTTPAddPGMCharToBuffer(&(U_footnote[0]));		//センサーネーム
 
 #if defined(_ARDUINIO_MEGA_SETTING)
-HTTPAddPGMCharToBuffer(&(LastUpdate[0]));
-HTTPAddPGMCharToBuffer(&(ProgramDate[0]));
-HTTPAddPGMCharToBuffer(&(UECSTxtPartHyphen[0]));
-HTTPAddPGMCharToBuffer(&(ProgramTime[0]));
+	//日時の表示？
+	HTTPAddPGMCharToBuffer(&(LastUpdate[0]));
+	HTTPAddPGMCharToBuffer(&(ProgramDate[0]));
+	HTTPAddPGMCharToBuffer(&(UECSTxtPartHyphen[0]));
+	HTTPAddPGMCharToBuffer(&(ProgramTime[0]));
 #endif
-
-  HTTPAddPGMCharToBuffer(&(UECShtmlHTMLCLOSE[0]));
-  HTTPCloseBuffer();			//実際に表示
+  HTTPAddPGMCharToBuffer(&(UECShtmlHTMLCLOSE[0]));	//htmlを閉じる</html>
+  HTTPCloseBuffer();			//クライアントに表示する
 }
 //--------------------------------------------------
-
+//設定ページを作成して表示する
 void HTTPsendPageLANSetting(){
+	//接続情報を確認してwebフォームを確認
   UECSinitOrgAttribute();
-
-  HTTPPrintHeader();
-  HTTPAddCharToBuffer(U_nodename);
+	//表示するページの作成
+  HTTPPrintHeader();	//ヘッダーの作成
+  HTTPAddCharToBuffer(U_nodename);		//ノードネーム
   HTTPAddPGMCharToBuffer(UECShtmlH1CLOSE); 
   HTTPAddPGMCharToBuffer(UECShtmlH2TAG);
   HTTPAddPGMCharToBuffer(UECShtmlLANTITLE);
   HTTPAddPGMCharToBuffer(UECShtmlH2CLOSE);  
   HTTPAddPGMCharToBuffer(&(UECShtmlLAN2[0]));  // <form action=\"./h2.htm\" name=\"f\"><p>
   HTTPAddPGMCharToBuffer(&(UECShtmlLAN3A[0]));   // address: 
- byte UECStempByte[4];
-  for(int i = 0; i < 4; i++){
+ 	byte UECStempByte[4];
+  for(int i = 0; i < 4; i++){		//ipアドレス？
     UECStempByte[i] = U_orgAttribute.ip[i];
   }
   HTTPprintIPtoHtml(UECStempByte); // XXX:XXX:XXX:XXX <br>
-  
   HTTPAddPGMCharToBuffer(&(UECShtmlLAN3B[0]));  // subnet: 
   HTTPprintIPtoHtml( U_orgAttribute.subnet); // XXX:XXX:XXX:XXX <br>
-  
   HTTPAddPGMCharToBuffer(&(UECShtmlLAN3C[0]));  // gateway: 
   HTTPprintIPtoHtml( U_orgAttribute.gateway); // XXX:XXX:XXX:XXX <br>
-  
   HTTPAddPGMCharToBuffer(&(UECShtmlLAN3D[0]));  // dns: 
   HTTPprintIPtoHtml( U_orgAttribute.dns); // XXX:XXX:XXX:XXX <br>
-
   HTTPAddPGMCharToBuffer(&(UECShtmlLAN3E[0]));  // mac: 
   sprintf(UECStempStr20, "%02X%02X%02X%02X%02X%02X", U_orgAttribute.mac[0], U_orgAttribute.mac[1], U_orgAttribute.mac[2], U_orgAttribute.mac[3], U_orgAttribute.mac[4], U_orgAttribute.mac[5]);
-  UDPAddCharToBuffer(UECStempStr20);
+  UDPAddCharToBuffer(UECStempStr20);		//Macアドレスの追加
 
   /*
   HTTPAddPGMCharToBuffer(UECShtmlH2TAG);// <H2>
@@ -758,367 +773,325 @@ void HTTPsendPageLANSetting(){
   HTTPAddPGMCharToBuffer(&(UECShtmlSUBMIT[0])); // <input name=\"b\" type=\"submit\" value=\"send\">
   HTTPAddPGMCharToBuffer(&(UECSformend[0]));   //</form>
   
-    if(U_orgAttribute.status & STATUS_NEEDRESET)
-		 {
-		 	HTTPAddPGMCharToBuffer(&(UECShtmlATTENTION_RESET[0]));
-		 }
-		 
-  
+	if(U_orgAttribute.status & STATUS_NEEDRESET){
+		HTTPAddPGMCharToBuffer(&(UECShtmlATTENTION_RESET[0]));
+	}
+
   HTTPAddPGMCharToBuffer(&(UECShtmlRETURNINDEX[0]));
   HTTPAddPGMCharToBuffer(&(UECShtmlHTMLCLOSE[0]));    //</BODY></HTML>
-  HTTPCloseBuffer();
-
+  HTTPCloseBuffer();		//クライアントに表示する
 }
 
 //--------------------------------------------------
+//ccmの送受信データの表示と設定のページ
 void HTTPsendPageCCM(){
+	//表示するページを作成していく
+ 	HTTPPrintHeader();
+	HTTPAddCharToBuffer(U_nodename); 
+	HTTPAddPGMCharToBuffer(&(UECShtmlCCMRecRes0[0])); // </H1><H2>CCM Status</H2><TABLE border=\"1\"><TBODY align=\"center\"><TR><TH>Info</TH><TH>S/R</TH><TH>Type</TH><TH>SR Lev</TH><TH>Value</TH><TH>Valid</TH><TH>Sec</TH><TH>Atr</TH><TH>IP</TH></TR>
+	//ccmの数を確認
+ 	for(int i = 0; i < U_MAX_CCM; i++){
+		 //送信頻度が0でないときのページを作成する
+		if(U_ccmList[i].ccmLevel != NONE){		
+			HTTPAddPGMCharToBuffer(&(UECStrtd[0])); //<tr><td>
+			HTTPAddPGMCharToBuffer(U_ccmList[i].name); 
+			HTTPAddPGMCharToBuffer(&(UECStdtd[0])); //</td><td>
+			if(U_ccmList[i].sender){
+				HTTPAddPGMCharToBuffer(UECSTxtPartS);
+			}else{
+				HTTPAddPGMCharToBuffer(UECSTxtPartR);		//R
+			} 
+			HTTPAddPGMCharToBuffer(&(UECStdtd[0])); //</td><td>
+			HTTPAddCharToBuffer(U_ccmList[i].typeStr);
+			HTTPAddPGMCharToBuffer(&(UECStdtd[0])); //</td><td> 
+			HTTPAddPGMCharToBuffer((UECSCCMLEVEL[U_ccmList[i].ccmLevel])); //******
+			HTTPAddPGMCharToBuffer(&(UECStdtd[0])); //</td><td> 
+			dtostrf(((double)U_ccmList[i].value) / pow(10, U_ccmList[i].decimal), -1, U_ccmList[i].decimal,UECStempStr20);
+			HTTPAddCharToBuffer(UECStempStr20);
+			HTTPAddPGMCharToBuffer(&(UECStdtd[0])); //</td><td>
 
- HTTPPrintHeader();
-HTTPAddCharToBuffer(U_nodename); 
-HTTPAddPGMCharToBuffer(&(UECShtmlCCMRecRes0[0])); // </H1><H2>CCM Status</H2><TABLE border=\"1\"><TBODY align=\"center\"><TR><TH>Info</TH><TH>S/R</TH><TH>Type</TH><TH>SR Lev</TH><TH>Value</TH><TH>Valid</TH><TH>Sec</TH><TH>Atr</TH><TH>IP</TH></TR>
-
- for(int i = 0; i < U_MAX_CCM; i++){
- if(U_ccmList[i].ccmLevel != NONE){
- 	
-HTTPAddPGMCharToBuffer(&(UECStrtd[0])); //<tr><td>
-
-HTTPAddPGMCharToBuffer(U_ccmList[i].name); 
-HTTPAddPGMCharToBuffer(&(UECStdtd[0])); //</td><td>
- if(U_ccmList[i].sender){
- HTTPAddPGMCharToBuffer(UECSTxtPartS);
- }else{
- HTTPAddPGMCharToBuffer(UECSTxtPartR);
- } 
-
-HTTPAddPGMCharToBuffer(&(UECStdtd[0])); //</td><td>
-
-HTTPAddCharToBuffer(U_ccmList[i].typeStr);
-HTTPAddPGMCharToBuffer(&(UECStdtd[0])); //</td><td> 
-
-HTTPAddPGMCharToBuffer((UECSCCMLEVEL[U_ccmList[i].ccmLevel])); //******
-
-HTTPAddPGMCharToBuffer(&(UECStdtd[0])); //</td><td> 
-
- dtostrf(((double)U_ccmList[i].value) / pow(10, U_ccmList[i].decimal), -1, U_ccmList[i].decimal,UECStempStr20);
-HTTPAddCharToBuffer(UECStempStr20);
-HTTPAddPGMCharToBuffer(&(UECStdtd[0])); //</td><td>
-
- if(U_ccmList[i].sender)
- {/*
-	 if(U_ccmList[i].validity)
-		 {HTTPAddPGMCharToBuffer(UECSTxtPartSend);}
-	 else
-	 	{HTTPAddPGMCharToBuffer(UECSTxtPartStop);}
-	 	*/
- }
- else
- {
-	 if(U_ccmList[i].validity)
-		 {HTTPAddPGMCharToBuffer(UECSTxtPartOK);}
-	 else
-	 	{HTTPAddPGMCharToBuffer(UECSTxtPartHyphen);}
- } 
-
-HTTPAddPGMCharToBuffer(&(UECStdtd[0])); //</td><td> 
- 
-if(U_ccmList[i].flagStimeRfirst && U_ccmList[i].sender == false)
- {
- 	 if(U_ccmList[i].recmillis<36000000)
- 	 	{HTTPAddValueToBuffer(U_ccmList[i].recmillis / 1000);}
- }
- else{
- 	 //over 10hour
- } 
-
-HTTPAddPGMCharToBuffer(&(UECStdtd[0])); //</td><td> 
- 
- if(U_ccmList[i].flagStimeRfirst && U_ccmList[i].sender == false){
- sprintf(UECStempStr20, "%d-%d-%d-%d", U_ccmList[i].attribute[AT_ROOM], U_ccmList[i].attribute[AT_REGI], U_ccmList[i].attribute[AT_ORDE], U_ccmList[i].attribute[AT_PRIO]);
-HTTPAddCharToBuffer(UECStempStr20); 
- }
- sprintf(UECStempStr20, "(%d-%d-%d)", U_ccmList[i].baseAttribute[AT_ROOM], U_ccmList[i].baseAttribute[AT_REGI], U_ccmList[i].baseAttribute[AT_ORDE]); 
-HTTPAddCharToBuffer(UECStempStr20);
-HTTPAddPGMCharToBuffer(&(UECStdtd[0])); //</td><td> 
- 
- 
-HTTPAddPGMCharToBuffer(&(UECSAHREF[0])); 
- sprintf(UECStempStr20, "%d.%d.%d.%d", U_ccmList[i].address[0], U_ccmList[i].address[1], U_ccmList[i].address[2], U_ccmList[i].address[3]); 
-HTTPAddCharToBuffer(UECStempStr20);
-HTTPAddPGMCharToBuffer(&(UECSTagClose[0]));
-HTTPAddCharToBuffer(UECStempStr20);
-HTTPAddPGMCharToBuffer(&(UECSSlashA[0]));
- 
-HTTPAddPGMCharToBuffer(&(UECStdtr[0])); //</td></tr> 
-  
- } //NONE route
- }
- 
- 
-HTTPAddPGMCharToBuffer(&(UECShtmlTABLECLOSE[0])); //</TBODY></TABLE>
- 
-if(U_HtmlLine>0) {
-HTTPAddPGMCharToBuffer(&(UECShtmlUserRes0[0])); // </H1><H2>Status</H2><TABLE border=\"1\"><TBODY align=\"center\"><TR><TH>Name</TH><TH>Val</TH><TH>Unit</TH><TH>Detail</TH></TR>
-
- 
- for(int i = 0; i < U_HtmlLine; i++)
-	{
+			if(U_ccmList[i].sender){/*	//送信モードの時の処理
+				if(U_ccmList[i].validity)
+					{HTTPAddPGMCharToBuffer(UECSTxtPartSend);}
+				else
+				{HTTPAddPGMCharToBuffer(UECSTxtPartStop);}
+				*/
+			}else{		//送信モード以外の時
+				if(U_ccmList[i].validity){
+					HTTPAddPGMCharToBuffer(UECSTxtPartOK);		//OK
+				}else{
+					HTTPAddPGMCharToBuffer(UECSTxtPartHyphen);	//"-"
+				}
+			} 
+			HTTPAddPGMCharToBuffer(&(UECStdtd[0])); //</td><td> 表のところ？？ 
+			//送信可能かつ受信モードの時
+			if(U_ccmList[i].flagStimeRfirst && U_ccmList[i].sender == false){
+				if(U_ccmList[i].recmillis<36000000){			//10時間未満であれば　　10時間でflagStimeRfirstが変わる？
+					HTTPAddValueToBuffer(U_ccmList[i].recmillis / 1000);		//秒数を表示
+				}
+			}else{
+				//over 10hour
+			} 
+			HTTPAddPGMCharToBuffer(&(UECStdtd[0])); //</td><td> 
+			//送信可能かつ受信モードの時
+			if(U_ccmList[i].flagStimeRfirst && U_ccmList[i].sender == false){
+				//room, region, order, priorityを文字列に詰め込む
+				sprintf(UECStempStr20, "%d-%d-%d-%d", U_ccmList[i].attribute[AT_ROOM], U_ccmList[i].attribute[AT_REGI], U_ccmList[i].attribute[AT_ORDE], U_ccmList[i].attribute[AT_PRIO]);
+				HTTPAddCharToBuffer(UECStempStr20); 
+			}
+			//基本のroom, region, order, priorityを文字列に詰め込む？
+			sprintf(UECStempStr20, "(%d-%d-%d)", U_ccmList[i].baseAttribute[AT_ROOM], U_ccmList[i].baseAttribute[AT_REGI], U_ccmList[i].baseAttribute[AT_ORDE]); 
+			HTTPAddCharToBuffer(UECStempStr20);
+			HTTPAddPGMCharToBuffer(&(UECStdtd[0])); //</td><td>  表の終了
 		
-		HTTPAddPGMCharToBuffer(&(UECStrtd[0]));
-		HTTPAddPGMCharToBuffer(U_html[i].name);
-		HTTPAddPGMCharToBuffer(&(UECStdtd[0]));
- // only value
+			HTTPAddPGMCharToBuffer(&(UECSAHREF[0])); //href
+			//ハイパーリンク用のアドレス？
+			sprintf(UECStempStr20, "%d.%d.%d.%d", U_ccmList[i].address[0], U_ccmList[i].address[1], U_ccmList[i].address[2], U_ccmList[i].address[3]); 
+			HTTPAddCharToBuffer(UECStempStr20);
+			HTTPAddPGMCharToBuffer(&(UECSTagClose[0]));
+			HTTPAddCharToBuffer(UECStempStr20);
+			HTTPAddPGMCharToBuffer(&(UECSSlashA[0]));		//</a>
+	
+			HTTPAddPGMCharToBuffer(&(UECStdtr[0])); //</td></tr> 
+		
+		} //NONE route
+	}
+	HTTPAddPGMCharToBuffer(&(UECShtmlTABLECLOSE[0])); //</TBODY></TABLE>
+	//webの設定画面に表示する項目があるとき
+	if(U_HtmlLine>0) {
+		HTTPAddPGMCharToBuffer(&(UECShtmlUserRes0[0])); // </H1><H2>Status</H2><TABLE border=\"1\"><TBODY align=\"center\"><TR><TH>Name</TH><TH>Val</TH><TH>Unit</TH><TH>Detail</TH></TR>
+		//表示する項目を作成していく
+		for(int i = 0; i < U_HtmlLine; i++){
+			HTTPAddPGMCharToBuffer(&(UECStrtd[0]));
+			HTTPAddPGMCharToBuffer(U_html[i].name);
+			HTTPAddPGMCharToBuffer(&(UECStdtd[0]));
+			// only value
+			//show dataが選択されたとき
+			if(U_html[i].pattern == UECSSHOWDATA){
+				if(U_html[i].decimal != 0){		//小数に変換する
+					dtostrf(((double)*U_html[i].data) / pow(10, U_html[i].decimal), -1, U_html[i].decimal,UECStempStr20);
+				}else{		//小数でないときはそのまま表示する
+					sprintf(UECStempStr20, "%ld", *(U_html[i].data));
+				}
+				HTTPAddCharToBuffer(UECStempStr20);
+				HTTPAddPGMCharToBuffer(&(UECShtmlInputHidden0[0]));		//hiden 
+			}else if(U_html[i].pattern == UECSINPUTDATA){		//inputが選択されたとき
+				HTTPAddPGMCharToBuffer(&(UECShtmlInputText[0]));		//htmlから入力する
+				//おそらく仮に表示する
+				dtostrf(((double)*U_html[i].data) / pow(10, U_html[i].decimal), -1, U_html[i].decimal,UECStempStr20);	
+				HTTPAddCharToBuffer(UECStempStr20);
+				HTTPAddPGMCharToBuffer(UECSSlashTagClose);		//タグを閉じる
+			}else if(U_html[i].pattern == UECSSELECTDATA){
+				HTTPAddPGMCharToBuffer(&(UECShtmlSelect[0]));	//htmlでselectタグを使用する
+
+				for(int j = 0; j < U_html[i].selectnum; j++){
+					HTTPAddPGMCharToBuffer(&(UECShtmlOption[0]));		//htmlのoption表示
+					HTTPAddValueToBuffer(j);		//valueになる
+					if((int)(*U_html[i].data) == j){
+						HTTPAddPGMCharToBuffer(UECSTxtPartSelected);	//</selected>
+					}else{ 
+						HTTPAddPGMCharToBuffer(UECSTagClose);
+					}
+					HTTPAddPGMCharToBuffer(U_html[i].selectname[j]);//************
+				} 
+				HTTPAddPGMCharToBuffer(&(UECShtmlSelectEnd[0])); 
+			}else if(U_html[i].pattern == UECSSHOWSTRING){		//show stringが選択されている時
+				//dataメンバに入っている内容を表示する？　※
+				HTTPAddPGMCharToBuffer(U_html[i].selectname[(int)*(U_html[i].data)]);//************
+				HTTPAddPGMCharToBuffer(&(UECShtmlInputHidden0[0])); 
+			}
+			//htmlの表を作成
+			HTTPAddPGMCharToBuffer(&(UECStdtd[0])); 
+			HTTPAddPGMCharToBuffer(U_html[i].unit); 
+			HTTPAddPGMCharToBuffer(&(UECStdtd[0])); 
+			HTTPAddPGMCharToBuffer(U_html[i].detail); 
+			HTTPAddPGMCharToBuffer(&(UECStdtr[0])); //</td></tr> 
+  	}
+		HTTPAddPGMCharToBuffer(&(UECShtmlTABLECLOSE[0])); //</TBODY></TABLE>
+		HTTPAddPGMCharToBuffer(&(UECShtmlSUBMIT[0])); // <input name=\"b\" type=\"submit\" value=\"send\">
+		HTTPAddPGMCharToBuffer(&(UECSformend[0])); //</form> 
+	}
+	HTTPAddPGMCharToBuffer(&(UECShtmlRETURNINDEX[0])); 	//<P align=\"center\">return <A href=\"index.htm\">Top</A></P>
+	HTTPAddPGMCharToBuffer(&(UECShtmlHTMLCLOSE[0])); 		//</html>
  
- if(U_html[i].pattern == UECSSHOWDATA)
-		{
-	 if(U_html[i].decimal != 0){
-	 dtostrf(((double)*U_html[i].data) / pow(10, U_html[i].decimal), -1, U_html[i].decimal,UECStempStr20);
-	 }else{
-	 sprintf(UECStempStr20, "%ld", *(U_html[i].data));
-	 }
-	HTTPAddCharToBuffer(UECStempStr20);
-	HTTPAddPGMCharToBuffer(&(UECShtmlInputHidden0[0]));
- }
-		else if(U_html[i].pattern == UECSINPUTDATA)
-			{
-	HTTPAddPGMCharToBuffer(&(UECShtmlInputText[0]));
-	 dtostrf(((double)*U_html[i].data) / pow(10, U_html[i].decimal), -1, U_html[i].decimal,UECStempStr20);
-	HTTPAddCharToBuffer(UECStempStr20);
-	HTTPAddPGMCharToBuffer(UECSSlashTagClose);
-		 }
-		else if(U_html[i].pattern == UECSSELECTDATA)
-			{
-	HTTPAddPGMCharToBuffer(&(UECShtmlSelect[0]));
-
-	 
-	 for(int j = 0; j < U_html[i].selectnum; j++)
-	 {
-	 
-	HTTPAddPGMCharToBuffer(&(UECShtmlOption[0]));
-
-
-	HTTPAddValueToBuffer(j);
-	 if((int)(*U_html[i].data) == j)
-			 	{
-			    HTTPAddPGMCharToBuffer(UECSTxtPartSelected);
-			 	}
-			 		else
-			 	{ 
-			    HTTPAddPGMCharToBuffer(UECSTagClose);
-			 	}
-	HTTPAddPGMCharToBuffer(U_html[i].selectname[j]);//************
-	 } 
-	HTTPAddPGMCharToBuffer(&(UECShtmlSelectEnd[0])); 
-	 }
-		else if(U_html[i].pattern == UECSSHOWSTRING)
-			{
-	HTTPAddPGMCharToBuffer(U_html[i].selectname[(int)*(U_html[i].data)]);//************
-	HTTPAddPGMCharToBuffer(&(UECShtmlInputHidden0[0])); 
-		 }
-
- 
- 
-HTTPAddPGMCharToBuffer(&(UECStdtd[0])); 
-HTTPAddPGMCharToBuffer(U_html[i].unit); 
-HTTPAddPGMCharToBuffer(&(UECStdtd[0])); 
-HTTPAddPGMCharToBuffer(U_html[i].detail); 
-HTTPAddPGMCharToBuffer(&(UECStdtr[0])); //</td></tr> 
-  
- }
-
-
-HTTPAddPGMCharToBuffer(&(UECShtmlTABLECLOSE[0])); //</TBODY></TABLE>
-HTTPAddPGMCharToBuffer(&(UECShtmlSUBMIT[0])); // <input name=\"b\" type=\"submit\" value=\"send\">
-HTTPAddPGMCharToBuffer(&(UECSformend[0])); //</form> 
- 
-}
-HTTPAddPGMCharToBuffer(&(UECShtmlRETURNINDEX[0])); //<P align=\"center\">return <A href=\"index.htm\">Top</A></P>
-HTTPAddPGMCharToBuffer(&(UECShtmlHTMLCLOSE[0])); 
- 
-  
- HTTPCloseBuffer();
+ 	HTTPCloseBuffer();	//クライアントに表示する
 }
 //--------------------------------------------------
+//CCMeditページの作成
+//引数：ccmid
 void HTTPsendPageEDITCCM(int ccmid){
+	//表示するページを作成していく
+	HTTPPrintHeader();
+	HTTPAddCharToBuffer(U_nodename);
+	HTTPAddPGMCharToBuffer(&(UECShtmlEditCCMTableHeader[0]));
 
-
-HTTPPrintHeader();
-HTTPAddCharToBuffer(U_nodename);
-
-HTTPAddPGMCharToBuffer(&(UECShtmlEditCCMTableHeader[0]));
-
-//----------
- for(int i = 0; i < U_MAX_CCM; i++){
-// if(U_ccmList[i].ccmLevel != NONE)
-
-	HTTPAddPGMCharToBuffer(&(UECStrtd[0])); //<tr><td>
-
-	//table 2nd start
-//	HTTPAddPGMCharToBuffer(&(UECStdtd[0]));
-	//ccm name
-	HTTPAddPGMCharToBuffer(U_ccmList[i].name);
-	HTTPAddPGMCharToBuffer(&(UECStdtd[0])); //</td><td>
-	//SR
-	 if(U_ccmList[i].sender){
-	 	HTTPAddPGMCharToBuffer(UECSTxtPartS);
-	 }else{
-	 	HTTPAddPGMCharToBuffer(UECSTxtPartR);
-	 } 
-	//level
-	HTTPAddPGMCharToBuffer(&(UECStdtd[0])); //</td><td>
-	HTTPAddPGMCharToBuffer((UECSCCMLEVEL[U_ccmList[i].ccmLevel]));
-	
-	//unit
-	HTTPAddPGMCharToBuffer(&(UECStdtd[0])); //</td><td>
-	HTTPAddPGMCharToBuffer(U_ccmList[i].unit);
-	HTTPAddPGMCharToBuffer(&(UECStdtd[0])); //</td><td>
-	
-				if(i==ccmid && U_ccmList[i].ccmLevel != NONE)
-				{
-				HTTPAddPGMCharToBuffer(&(UECShtmlInputHiddenValue[0])); //hidden value(ccmid)
-				sprintf(UECStempStr20,"%d",i);
-				HTTPAddCharToBuffer(UECStempStr20);
-				HTTPAddPGMCharToBuffer(&(UECSSlashTagClose[0]));
+	//ccmの数の把握
+	for(int i = 0; i < U_MAX_CCM; i++){
+	// if(U_ccmList[i].ccmLevel != NONE)
+		HTTPAddPGMCharToBuffer(&(UECStrtd[0])); //<tr><td>
+		//table 2nd start
+		//	HTTPAddPGMCharToBuffer(&(UECStdtd[0]));
+		//ccm name
+		HTTPAddPGMCharToBuffer(U_ccmList[i].name);
+		HTTPAddPGMCharToBuffer(&(UECStdtd[0])); //</td><td>
+		//送受信モードの確認
+	 	if(U_ccmList[i].sender){		//送信モードの時はS
+	 		HTTPAddPGMCharToBuffer(UECSTxtPartS);
+	 	}else{											//受信モードの時はR
+	 		HTTPAddPGMCharToBuffer(UECSTxtPartR);
+	 	} 
+		//level　送信頻度
+		HTTPAddPGMCharToBuffer(&(UECStdtd[0])); //</td><td>
+		HTTPAddPGMCharToBuffer((UECSCCMLEVEL[U_ccmList[i].ccmLevel]));
+		//unit　単位
+		HTTPAddPGMCharToBuffer(&(UECStdtd[0])); //</td><td>
+		HTTPAddPGMCharToBuffer(U_ccmList[i].unit);
+		HTTPAddPGMCharToBuffer(&(UECStdtd[0])); //</td><td>
+		//送信頻度が0でないとき　iとccmidが一致しないときはエラーと判断？
+		if(i==ccmid && U_ccmList[i].ccmLevel != NONE){
+			HTTPAddPGMCharToBuffer(&(UECShtmlInputHiddenValue[0])); //hidden value(ccmid)
+			sprintf(UECStempStr20,"%d",i);				//ccmidの表示
+			HTTPAddCharToBuffer(UECStempStr20);
+			HTTPAddPGMCharToBuffer(&(UECSSlashTagClose[0]));
 					
-				//room region order
-				HTTPAddPGMCharToBuffer(&(UECShtmlInputText[0]));
-				sprintf(UECStempStr20,"%d",U_ccmList[i].baseAttribute[AT_ROOM]);
-				HTTPAddCharToBuffer(UECStempStr20);
-				HTTPAddPGMCharToBuffer(UECShtmlINPUTCLOSE3);
+			//room region orderを確認
+			HTTPAddPGMCharToBuffer(&(UECShtmlInputText[0]));
+			sprintf(UECStempStr20,"%d",U_ccmList[i].baseAttribute[AT_ROOM]);
+			HTTPAddCharToBuffer(UECStempStr20);
+			HTTPAddPGMCharToBuffer(UECShtmlINPUTCLOSE3);
 
-				HTTPAddPGMCharToBuffer(&(UECShtmlInputText[0]));
-				sprintf(UECStempStr20,"%d",U_ccmList[i].baseAttribute[AT_REGI]);
-				HTTPAddCharToBuffer(UECStempStr20);
-				HTTPAddPGMCharToBuffer(UECShtmlINPUTCLOSE3);
+			HTTPAddPGMCharToBuffer(&(UECShtmlInputText[0]));
+			sprintf(UECStempStr20,"%d",U_ccmList[i].baseAttribute[AT_REGI]);
+			HTTPAddCharToBuffer(UECStempStr20);
+			HTTPAddPGMCharToBuffer(UECShtmlINPUTCLOSE3);
 
-				HTTPAddPGMCharToBuffer(&(UECShtmlInputText[0]));
-				sprintf(UECStempStr20,"%d",U_ccmList[i].baseAttribute[AT_ORDE]);
-				HTTPAddCharToBuffer(UECStempStr20);
-				HTTPAddPGMCharToBuffer(UECShtmlINPUTCLOSE3);
-				
-				//priority
-				HTTPAddPGMCharToBuffer(&(UECShtmlInputText[0]));
-				sprintf(UECStempStr20,"%d",U_ccmList[i].baseAttribute[AT_PRIO]);
-				HTTPAddCharToBuffer(UECStempStr20);
-				HTTPAddPGMCharToBuffer(UECShtmlINPUTCLOSE3);
-				HTTPAddPGMCharToBuffer(&(UECStdtd[0]));//</td><td>
-				
-				//TypeInput
-				HTTPAddPGMCharToBuffer(&(UECShtmlInputText[0]));
-				HTTPAddCharToBuffer(U_ccmList[i].typeStr);
-				HTTPAddPGMCharToBuffer(UECShtmlINPUTCLOSE19);
-
-				HTTPAddPGMCharToBuffer(&(UECStdtd[0]));//</td><td>
-				//default
-				HTTPAddPGMCharToBuffer(U_ccmList[i].type);
-
-				HTTPAddPGMCharToBuffer(&(UECStdtd[0]));//</td><td>
-				//submit btn
-				HTTPAddPGMCharToBuffer(&(UECShtmlSUBMIT[0])); 
-				}
-		else
-				{
-				sprintf(UECStempStr20,"%d-%d-%d-%d",U_ccmList[i].baseAttribute[AT_ROOM],U_ccmList[i].baseAttribute[AT_REGI],U_ccmList[i].baseAttribute[AT_ORDE],U_ccmList[i].baseAttribute[AT_PRIO]);
-				HTTPAddCharToBuffer(UECStempStr20);
-				HTTPAddPGMCharToBuffer(&(UECStdtd[0]));//</td><td>
-				HTTPAddCharToBuffer(U_ccmList[i].typeStr);
-				HTTPAddPGMCharToBuffer(&(UECStdtd[0]));//</td><td>
-				HTTPAddPGMCharToBuffer(U_ccmList[i].type);
-				HTTPAddPGMCharToBuffer(&(UECStdtd[0]));//</td><td>
-				
-				//Edit Link
-				HTTPAddPGMCharToBuffer(&(UECSAHREF3[0]));
-				sprintf(UECStempStr20,"%d",i);
-				HTTPAddCharToBuffer(UECStempStr20);
-				HTTPAddPGMCharToBuffer(&(UECSTagClose[0]));
-				HTTPAddPGMCharToBuffer(&(UECShtmlEditCCMEditTxt[0]));
-				HTTPAddPGMCharToBuffer(&(UECSSlashA[0])); //</a> 
-				}
-				HTTPAddPGMCharToBuffer(&(UECStdtr[0])); //</td><tr>
-
-	 }
-
-//-------------
-
-HTTPAddPGMCharToBuffer(&(UECShtmlTABLECLOSE[0])); 
-HTTPAddPGMCharToBuffer(&(UECSformend[0]));
-
-HTTPAddPGMCharToBuffer(&(UECShtmlEditCCMCmdBtn1[0]));
-sprintf(UECStempStr20,"%d-%d-%d-%d",U_ccmList[ccmid].baseAttribute[AT_ROOM],U_ccmList[ccmid].baseAttribute[AT_REGI],U_ccmList[ccmid].baseAttribute[AT_ORDE],U_ccmList[ccmid].baseAttribute[AT_PRIO]);
-HTTPAddCharToBuffer(UECStempStr20);
-HTTPAddPGMCharToBuffer(&(UECShtmlEditCCMCmdBtn2[0]));
-
-
-HTTPAddPGMCharToBuffer(&(UECShtmlRETURNINDEX[0])); 
-
-//Javascript
-HTTPAddPGMCharToBuffer(&(UECShtmlEditCCMCmdBtnScript1[0])); 
-sprintf(UECStempStr20,"%d",ccmid+100);
-HTTPAddCharToBuffer(UECStempStr20);
-HTTPAddPGMCharToBuffer(&(UECShtmlEditCCMCmdBtnScript2[0])); 
-
-HTTPAddPGMCharToBuffer(&(UECShtmlHTMLCLOSE[0])); 
- 
-  
- HTTPCloseBuffer();
-}
-//---------------------------------------------####################
-//---------------------------------------------####################
-//---------------------------------------------####################
-void HTTPGetFormDataCCMPage()
-{
-if(U_HtmlLine==0){return;}
-
-int i;
-int startPos=0;
-int progPos=0;
-long tempValue;
-unsigned char tempDecimal;
-
-
-for(i=0;i<U_HtmlLine;i++)
-	{
-	if(!UECSFindPGMChar(&UECSbuffer[startPos],UECSaccess_LEQUAL,&progPos)){continue;}
-	startPos+=progPos;
-
-		if(U_html[i].pattern == UECSINPUTDATA)
-				{
-				
-				if(!UECSGetFixedFloatValue(&UECSbuffer[startPos],&tempValue,&tempDecimal,&progPos)){return;}
-				startPos+=progPos;
-				if(UECSbuffer[startPos]!='&'){return;}//last '&' not found
-				
-			    int dif_decimal=U_html[i].decimal-tempDecimal;
-			    if(dif_decimal>=0){*U_html[i].data = tempValue*pow(10,dif_decimal);}
-			    else{*U_html[i].data = tempValue/pow(10,-dif_decimal);}
-
-				if(*U_html[i].data<U_html[i].minValue){*U_html[i].data=U_html[i].minValue;}
-				if(*U_html[i].data>U_html[i].maxValue){*U_html[i].data=U_html[i].maxValue;}
-				}
-		else if(U_html[i].pattern == UECSSELECTDATA)
-				{
-				
-				if(!UECSGetFixedFloatValue(&UECSbuffer[startPos],&tempValue,&tempDecimal,&progPos)){return;}
-				startPos+=progPos;
-				
-				if(UECSbuffer[startPos]!='&'){return;}//last '&' not found
-				
-				if(tempDecimal!=0){return;}
-				*U_html[i].data=tempValue%U_html[i].selectnum;//cut too big value
-				}
-
-	
-				
-				
+			HTTPAddPGMCharToBuffer(&(UECShtmlInputText[0]));
+			sprintf(UECStempStr20,"%d",U_ccmList[i].baseAttribute[AT_ORDE]);
+			HTTPAddCharToBuffer(UECStempStr20);
+			HTTPAddPGMCharToBuffer(UECShtmlINPUTCLOSE3);
+			//priority
+			HTTPAddPGMCharToBuffer(&(UECShtmlInputText[0]));
+			sprintf(UECStempStr20,"%d",U_ccmList[i].baseAttribute[AT_PRIO]);
+			HTTPAddCharToBuffer(UECStempStr20);
+			HTTPAddPGMCharToBuffer(UECShtmlINPUTCLOSE3);
+			HTTPAddPGMCharToBuffer(&(UECStdtd[0]));//</td><td>
+			//TypeInput
+			HTTPAddPGMCharToBuffer(&(UECShtmlInputText[0]));
+			HTTPAddCharToBuffer(U_ccmList[i].typeStr);
+			HTTPAddPGMCharToBuffer(UECShtmlINPUTCLOSE19);
+			HTTPAddPGMCharToBuffer(&(UECStdtd[0]));//</td><td>
+			//default
+			HTTPAddPGMCharToBuffer(U_ccmList[i].type);
+			HTTPAddPGMCharToBuffer(&(UECStdtd[0]));//</td><td>
+			//submit btn
+			HTTPAddPGMCharToBuffer(&(UECShtmlSUBMIT[0])); 
+		}else{
+			//room, region, order, priorityを表示する
+			sprintf(UECStempStr20,"%d-%d-%d-%d",U_ccmList[i].baseAttribute[AT_ROOM],U_ccmList[i].baseAttribute[AT_REGI],U_ccmList[i].baseAttribute[AT_ORDE],U_ccmList[i].baseAttribute[AT_PRIO]);
+			HTTPAddCharToBuffer(UECStempStr20);
+			HTTPAddPGMCharToBuffer(&(UECStdtd[0]));//</td><td>
+			HTTPAddCharToBuffer(U_ccmList[i].typeStr);
+			HTTPAddPGMCharToBuffer(&(UECStdtd[0]));//</td><td>
+			HTTPAddPGMCharToBuffer(U_ccmList[i].type);
+			HTTPAddPGMCharToBuffer(&(UECStdtd[0]));//</td><td>
+			
+			//Edit Linkを作成する　CCMの編集ボタンになる
+			HTTPAddPGMCharToBuffer(&(UECSAHREF3[0]));
+			sprintf(UECStempStr20,"%d",i);
+			HTTPAddCharToBuffer(UECStempStr20);
+			HTTPAddPGMCharToBuffer(&(UECSTagClose[0]));
+			HTTPAddPGMCharToBuffer(&(UECShtmlEditCCMEditTxt[0]));
+			HTTPAddPGMCharToBuffer(&(UECSSlashA[0])); //</a> 
+		}
+		HTTPAddPGMCharToBuffer(&(UECStdtr[0])); //</td><tr>
 	}
-	
-	
-	OnWebFormRecieved();
-	
-for(i = 0; i < U_HtmlLine; i++)
-	       {UECS_EEPROM_writeLong(EEPROM_WEBDATA + i * 4, *(U_html[i].data));}
+	//-------------
 
+	HTTPAddPGMCharToBuffer(&(UECShtmlTABLECLOSE[0])); 
+	HTTPAddPGMCharToBuffer(&(UECSformend[0]));
+	HTTPAddPGMCharToBuffer(&(UECShtmlEditCCMCmdBtn1[0]));
+	sprintf(UECStempStr20,"%d-%d-%d-%d",U_ccmList[ccmid].baseAttribute[AT_ROOM],U_ccmList[ccmid].baseAttribute[AT_REGI],U_ccmList[ccmid].baseAttribute[AT_ORDE],U_ccmList[ccmid].baseAttribute[AT_PRIO]);
+	HTTPAddCharToBuffer(UECStempStr20);
+	HTTPAddPGMCharToBuffer(&(UECShtmlEditCCMCmdBtn2[0]));	//ボタンを押したときのonclick
+	HTTPAddPGMCharToBuffer(&(UECShtmlRETURNINDEX[0])); 
 
+	//Javascript
+	//ボタンに応じたJSの処理を行う　値の設定とデフォルトに戻す
+	HTTPAddPGMCharToBuffer(&(UECShtmlEditCCMCmdBtnScript1[0])); 
+	sprintf(UECStempStr20,"%d",ccmid+100);
+	HTTPAddCharToBuffer(UECStempStr20);
+	HTTPAddPGMCharToBuffer(&(UECShtmlEditCCMCmdBtnScript2[0])); 
+	HTTPAddPGMCharToBuffer(&(UECShtmlHTMLCLOSE[0])); 
+
+ 	HTTPCloseBuffer();		//クライアントに表示する
 }
+
+//---------------------------------------------####################
+//---------------------------------------------####################
+//---------------------------------------------####################
+void HTTPGetFormDataCCMPage(){
+	//web設定画面で表示すべき項目がないときは終了
+	if(U_HtmlLine==0){
+		return;
+	}
+
+	int i;
+	int startPos=0;
+	int progPos=0;
+	long tempValue;
+	unsigned char tempDecimal;
+
+	for(i=0;i<U_HtmlLine;i++){
+		if(!UECSFindPGMChar(&UECSbuffer[startPos],UECSaccess_LEQUAL,&progPos)){
+			continue;
+		}
+		startPos+=progPos;
+		if(U_html[i].pattern == UECSINPUTDATA){
+			if(!UECSGetFixedFloatValue(&UECSbuffer[startPos],&tempValue,&tempDecimal,&progPos)){
+				return;
+			}
+			startPos+=progPos;
+			if(UECSbuffer[startPos]!='&'){
+				return;
+			}//last '&' not found
+				
+			int dif_decimal=U_html[i].decimal-tempDecimal;
+			if(dif_decimal>=0){
+				*U_html[i].data = tempValue*pow(10,dif_decimal);
+			}else{
+				*U_html[i].data = tempValue/pow(10,-dif_decimal);
+			}
+
+			if(*U_html[i].data<U_html[i].minValue){
+				*U_html[i].data=U_html[i].minValue;
+			}
+			if(*U_html[i].data>U_html[i].maxValue){
+				*U_html[i].data=U_html[i].maxValue;
+			}
+		}else if(U_html[i].pattern == UECSSELECTDATA){
+			if(!UECSGetFixedFloatValue(&UECSbuffer[startPos],&tempValue,&tempDecimal,&progPos)){
+				return;
+			}
+			startPos+=progPos;
+				
+			if(UECSbuffer[startPos]!='&'){
+				return;
+			}//last '&' not found
+				
+			if(tempDecimal!=0){
+				return;
+			}
+			*U_html[i].data=tempValue%U_html[i].selectnum;//cut too big value
+		}			
+	}
+	OnWebFormRecieved();	
+	for(i = 0; i < U_HtmlLine; i++){
+		UECS_EEPROM_writeLong(EEPROM_WEBDATA + i * 4, *(U_html[i].data));
+	}
+}
+
+
+
 int HTTPGetFormDataEDITCCMPage()
 {
 	int i;
@@ -1866,6 +1839,8 @@ void UDPAddCharToBuffer(char* word){
 
 }
 //-----------------------------------
+//値をバッファに入れる
+//引数：バッファに入れたい値
 void UDPAddValueToBuffer(long value){
 	sprintf(&UECSbuffer[wp], "%ld", value);
 	wp=strlen(UECSbuffer);
@@ -1875,75 +1850,75 @@ void UDPAddValueToBuffer(long value){
   #endif
 }
 //-----------------------------------
-void HTTPAddPGMCharToBuffer(const char* _romword)
-{
-   for(int i = 0; i <= MAXIMUM_STRINGLENGTH; i++)
-   {
-    UECSbuffer[wp]=pgm_read_byte(&_romword[i]);
-    if(UECSbuffer[wp]=='\0'){break;}
+//const charに保存した文字の配列をUECSバッファに保存
+//引数：const charに保存した文字のアドレス
+void HTTPAddPGMCharToBuffer(const char* _romword){
+	//nullが入力されるか最大サイズまで繰り返す
+	for(int i = 0; i <= MAXIMUM_STRINGLENGTH; i++){
+    UECSbuffer[wp]=pgm_read_byte(&_romword[i]);		//const charの文字をバッファに保存
+    if(UECSbuffer[wp]=='\0'){		//終端のnullが出てきたら終了
+			break;
+		}
     wp++;
     //auto send
-    if(wp>BUF_HTTP_REFRESH_SIZE)
-    		{
+    if(wp>BUF_HTTP_REFRESH_SIZE){		//バッファがあふれそうになったらクライアントに表示してクリア
 			HTTPRefreshBuffer();
-    		}
+    }
   }
-  
   #if defined(_ARDUINIO_MEGA_SETTING)
       MemoryWatching();
   #endif
 }
 //---------------------------------------------
-void HTTPAddCharToBuffer(char* word)
-{
-   for(int i = 0; i <= MAXIMUM_STRINGLENGTH; i++)
-   {
+//引数の文字列をUECSバッファに保存	
+//引数：入力したい文字列
+void HTTPAddCharToBuffer(char* word){
+	//nullが入力されるか最大サイズまでバッファに入れていく
+	for(int i = 0; i <= MAXIMUM_STRINGLENGTH; i++){
     UECSbuffer[wp]=word[i];
-    if(UECSbuffer[wp]=='\0'){break;}
+    if(UECSbuffer[wp]=='\0'){		//nullが入力されたら終了
+			break;
+		}
     wp++;
     //auto send
-    if(wp>BUF_HTTP_REFRESH_SIZE)
-    		{
-			HTTPRefreshBuffer();
-    		}
+    if(wp>BUF_HTTP_REFRESH_SIZE){
+			HTTPRefreshBuffer();		//バッファがあふれそうになったらクライアントに表示してクリア
+		}
   }
   #if defined(_ARDUINIO_MEGA_SETTING)
-	    MemoryWatching();
+		MemoryWatching();
   #endif
-
 }
 //---------------------------------------------
-void HTTPAddValueToBuffer(long value)
-{
-sprintf(&UECSbuffer[wp], "%ld", value);
-wp=strlen(UECSbuffer);
-
-if(wp>BUF_HTTP_REFRESH_SIZE)
-    		{
-			HTTPRefreshBuffer();
-    		}
-   
+//引数で入ってきた数値をバッファに保存する
+//引数：保存したい数値
+void HTTPAddValueToBuffer(long value){
+	//引数で入って来た数値を文字に変換
+	sprintf(&UECSbuffer[wp], "%ld", value);
+	wp=strlen(UECSbuffer);
+	//バッファのサイズが指定した値より大きくなりそうな時はバッファの消去処理
+	if(wp>BUF_HTTP_REFRESH_SIZE){
+		HTTPRefreshBuffer();
+	}
   #if defined(_ARDUINIO_MEGA_SETTING)
-   MemoryWatching();
+  	MemoryWatching();
   #endif
 }
-void HTTPRefreshBuffer(void)
-{
-	
-	
-    UECSbuffer[wp]='\0';
-    UECSclient.print(UECSbuffer);
-    ClearMainBuffer();
-    
 
+//clientに表示してバッファを消去する
+void HTTPRefreshBuffer(void){		
+	UECSbuffer[wp]='\0';		//nullがあったら
+	UECSclient.print(UECSbuffer);		//クライアントに表示
+	ClearMainBuffer();		//バッファのクリア
 }
-void HTTPCloseBuffer(void)
-{
-	
-if(strlen(UECSbuffer)>0)
-	{UECSclient.print(UECSbuffer);}
 
+//UECSバッファがあるときはクライアントに表示する
+void HTTPCloseBuffer(void){
+	if(strlen(UECSbuffer)>0){
+		UECSclient.print(UECSbuffer);
+	}
 }
+
 //------------------------------------
 //delete \r,\n and contorol code
 //replace the continuous space character to 1 space

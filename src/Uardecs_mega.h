@@ -6,6 +6,10 @@
   updated by Hideto Kurosaki 2022.4.
 
 */
+
+/*中村開発メモ
+U_MAX_CCMはメインコードで宣言ccm_dummyの値が入る
+*/
 #ifndef Uardecs_mega_h
 #define Uardecs_mega_h
 
@@ -421,9 +425,9 @@ void SoftReset(void);
 void UECS_EEPROM_writeLong(int ee, long value);
 long UECS_EEPROM_readLong(int ee);
 void HTTPcheckRequest();
-void HTTPPrintHeader();
-void HTTPsendPageIndex();
-void HTTPsendPageLANSetting();
+void HTTPPrintHeader();					//html用のヘッダーの作成してバッファに入れていく
+void HTTPsendPageIndex();				//ページを作成してクライアントに表示する
+void HTTPsendPageLANSetting();	//設定ページを作成して表示する
 void HTTPsendPageCCM();
 
 void HTTPGetFormDataCCMPage();
@@ -514,11 +518,11 @@ void UDPFilterToBuffer(void);
 
 
 void HTTPFilterToBuffer(void);
-void HTTPAddPGMCharToBuffer(const char* _romword);
-void HTTPAddCharToBuffer(char* word);
-void HTTPAddValueToBuffer(long value);
-void HTTPRefreshBuffer(void);
-void HTTPCloseBuffer(void);
+void HTTPAddPGMCharToBuffer(const char* _romword);		//const charに保存した文字の配列をUECSバッファに保存
+void HTTPAddCharToBuffer(char* word);		//引数の文字列をUECSバッファに保存
+void HTTPAddValueToBuffer(long value);	//引数で入ってきた数値をバッファに保存する
+void HTTPRefreshBuffer(void);		//clientに表示してバッファを消去する
+void HTTPCloseBuffer(void);			//UECSバッファがあるときはクライアントに表示する
 
 
 void HTTPprintIPtoHtml(byte address[]);
