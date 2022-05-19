@@ -10,6 +10,7 @@
 /*中村開発メモ
 U_MAX_CCMはメインコードで宣言ccm_dummyの値が入る
 特にネットワークの処理等については継承が利用できそうである
+スキャンとサーチの違いは把握していたほうがよさそう
 */
 #ifndef Uardecs_mega_h
 #define Uardecs_mega_h

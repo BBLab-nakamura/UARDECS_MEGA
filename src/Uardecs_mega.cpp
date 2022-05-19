@@ -628,7 +628,7 @@ void HTTPprintIPtoHtml(byte address[]){
 }
 //-----------------------------------------------------------new
 //---------------------------------------------------------------
-//
+//リダイレクトページ（特に何も表示されない）
 //引数：
 void HTTPPrintRedirect(char page){
 	ClearMainBuffer();		//バッファの初期化
@@ -716,7 +716,7 @@ void HTTPsendPageIndex(){
   HTTPCloseBuffer();			//クライアントに表示する
 }
 //--------------------------------------------------
-//設定ページを作成して表示する
+//ネットワーク設定ページを作成して表示する
 void HTTPsendPageLANSetting(){
 	//接続情報を確認してwebフォームを確認
   UECSinitOrgAttribute();
@@ -1251,7 +1251,7 @@ int HTTPGetFormDataEDITCCMPage(){
 }
 
 //--------------------------------------------------------------------------
-//LANの設定のページ
+//LANの設定をEEPROMに書き込む
 void HTTPGetFormDataLANSettingPage(){
 	int i;
 	int startPos=0;
@@ -1289,41 +1289,44 @@ void HTTPGetFormDataLANSettingPage(){
 			return ;
 		}//IP address
 	}
-
+	//同じ値は無視する
 	for(int i = 0; i < 16; i++){
-		if(EEPROM.read(EEPROM_DATATOP + i)!=(unsigned char)UECStempValue[i]){	//skip same value	
+		if(EEPROM.read(EEPROM_DATATOP + i) != (unsigned char)UECStempValue[i]){	//skip same value	
 			EEPROM.write(EEPROM_DATATOP + i, (unsigned char)UECStempValue[i]);
-			U_orgAttribute.status |= STATUS_NEEDRESET;					
+			/*bit or演算？
+			x |= y; // equivalent to x = x | y;
+			何をしているかはよくわからない？　※　*/
+			U_orgAttribute.status |= STATUS_NEEDRESET;		//リセットボタンを押してほしいとステータスに入れる			
 		}
 	}
        		
 	//---------------------------NODE NAME
+	//データの妥当性を判断
 	if(!UECSFindPGMChar(&UECSbuffer[startPos],UECSaccess_LEQUAL,&progPos)){
 		return ;
 	}
 	startPos+=progPos;
-		
 	//copy node name
-	for(i=0;i<20;i++){
+	//node nameの確認
+	for(i=0;i<20;i++){		//かっこを取り除く
 		if(UECSbuffer[startPos+i]=='<' || UECSbuffer[startPos+i]=='>'){		//eliminate tag
 			UECSbuffer[startPos+i]='*';
 		}	
-		if(UECSbuffer[startPos+i]=='&'){
+		if(UECSbuffer[startPos+i]=='&'){		//&が出てきたら中断
 			break;
 		}
-		if(UECSbuffer[startPos+i]=='\0' || i==19){
+		if(UECSbuffer[startPos+i]=='\0' || i==19){	//nullがでてくるか最後までいったら終了
 			return;
 		}//�I�[�������̂Ŗ���
 		//prevention of Cutting multibyte UTF-8 code
+		//マルチバイトコードへの対応
 		if(i>=16 && (unsigned char)UECSbuffer[startPos+i]>=0xC0){	//UTF-8 multibyte code header
 			break;	
 		}
-
-		UECStempStr20[i]=UECSbuffer[startPos+i];
+		UECStempStr20[i]=UECSbuffer[startPos+i];		//node nameの取り出し
 	}
-
 	UECStempStr20[i]='\0';//set end code
-
+	//EEPROMに保存されているnode nameと異なる時はEEPROMに書き込む
 	for(int i = 0; i < 20; i++){
 		U_nodename[i]=UECStempStr20[i];			
 			if(EEPROM.read(EEPROM_NODENAME + i)!=U_nodename[i]){		//skip same value
@@ -1334,218 +1337,192 @@ void HTTPGetFormDataLANSettingPage(){
 }
 
 //--------------------------------------------------------------------
-void HTTPGetFormDataFillCCMAttributePage()
-{
+//
+void HTTPGetFormDataFillCCMAttributePage(){
 	int i;
 	int startPos=0;
 	int progPos=0;
 	unsigned char tempDecimal;
 	long ccmid;
-
-	if(!UECSFindPGMChar(&UECSbuffer[startPos],UECSaccess_LEQUAL,&progPos)){return;}
-	startPos+=progPos;
-	if(!UECSGetFixedFloatValue(&UECSbuffer[startPos],&ccmid,&tempDecimal,&progPos)){return;}
-	startPos+=progPos;
-	if(tempDecimal!=0){return;}
-	ccmid-=100;
-	if(ccmid<0 || ccmid>=U_MAX_CCM){return;}
-	
-	for(i=0;i<U_MAX_CCM;i++)
-	{
-	U_ccmList[i].baseAttribute[AT_ROOM]=U_ccmList[ccmid].baseAttribute[AT_ROOM];
-	U_ccmList[i].baseAttribute[AT_REGI]=U_ccmList[ccmid].baseAttribute[AT_REGI];
-	U_ccmList[i].baseAttribute[AT_ORDE]=U_ccmList[ccmid].baseAttribute[AT_ORDE];
-	U_ccmList[i].baseAttribute[AT_PRIO]=U_ccmList[ccmid].baseAttribute[AT_PRIO];
-	UECS_EEPROM_SaveCCMAttribute(i);
+	//入っているデータの妥当性をチェック
+	if(!UECSFindPGMChar(&UECSbuffer[startPos],UECSaccess_LEQUAL,&progPos)){
+		return;
 	}
-	
-	
-
+	startPos+=progPos;
+	if(!UECSGetFixedFloatValue(&UECSbuffer[startPos],&ccmid,&tempDecimal,&progPos)){
+		return;
+	}
+	startPos+=progPos;
+	if(tempDecimal!=0){
+		return;
+	}
+	ccmid-=100;		//ccmidが100以上の時に実行する
+	if(ccmid<0 || ccmid>=U_MAX_CCM){
+		return;
+	}
+	//room, region, order, priority情報をEEPROMに保存する
+	for(i=0;i<U_MAX_CCM;i++){
+		U_ccmList[i].baseAttribute[AT_ROOM]=U_ccmList[ccmid].baseAttribute[AT_ROOM];
+		U_ccmList[i].baseAttribute[AT_REGI]=U_ccmList[ccmid].baseAttribute[AT_REGI];
+		U_ccmList[i].baseAttribute[AT_ORDE]=U_ccmList[ccmid].baseAttribute[AT_ORDE];
+		U_ccmList[i].baseAttribute[AT_PRIO]=U_ccmList[ccmid].baseAttribute[AT_PRIO];
+		UECS_EEPROM_SaveCCMAttribute(i);
+	}
 }
+
 //---------------------------------------------####################
-//
+//httpのメソッド（リクエスト）を確認
 void HTTPcheckRequest(){
-//(Ethenetserver) サーバーに接続しているクラインアントを取得	利用可能なクライアントがないときは偽
-UECSclient=UECSlogserver.available();	
+	//サーバーに接続しているクラインアントを取得	利用可能なクライアントがないときは偽
+	UECSclient=UECSlogserver.available();	
   //Caution! This function can not receive only up to the top 299 bytes.
   //Dropped string will be ignored.
 	//上位299バイトが読み込まれる
   
-  if(UECSclient)		//クライアントがあるか確認
-  {
-      
-      //Add null termination 
-      UECSbuffer[UECSclient.read((uint8_t *)UECSbuffer,BUF_SIZE-1)]='\0';	//null終端の追加
-      
-			//余計なものを除く
-      HTTPFilterToBuffer();//Get first line before "&S=" and eliminate unnecessary code
-			int progPos = 0;
-			//
-			if(UECSFindPGMChar(UECSbuffer,&(UECSaccess_NOSPC_GETP0[0]),&progPos))
-			{HTTPsendPageIndex();}
-		else if(UECSFindPGMChar(UECSbuffer,&(UECSaccess_NOSPC_GETP1[0]),&progPos))
-			{HTTPsendPageCCM();}
-		else if(UECSFindPGMChar(UECSbuffer,&(UECSaccess_NOSPC_GETP2[0]),&progPos))
-			{HTTPsendPageLANSetting();}
-		else if(UECSFindPGMChar(UECSbuffer,&(UECSaccess_NOSPC_GETP1A[0]),&progPos))//include form data
-				{
-				HTTPGetFormDataCCMPage();
-				HTTPPrintRedirect(1);
+  if(UECSclient){		//クライアントがあるか確認 
+		//Add null termination 
+		UECSbuffer[UECSclient.read((uint8_t *)UECSbuffer,BUF_SIZE-1)]='\0';	//null終端の追加	
+		//余計なものを除く
+		HTTPFilterToBuffer();//Get first line before "&S=" and eliminate unnecessary code
+		int progPos = 0;
+		//受信したGETメソッドに応じたページの作成
+		if(UECSFindPGMChar(UECSbuffer,&(UECSaccess_NOSPC_GETP0[0]),&progPos)){
+			HTTPsendPageIndex();	//Indexページの作成
+		}else if(UECSFindPGMChar(UECSbuffer,&(UECSaccess_NOSPC_GETP1[0]),&progPos)){
+			HTTPsendPageCCM();		//CCMの設定ページ
+		}else if(UECSFindPGMChar(UECSbuffer,&(UECSaccess_NOSPC_GETP2[0]),&progPos)){
+			HTTPsendPageLANSetting();	//ネットワーク設定ページ
+		}else if(UECSFindPGMChar(UECSbuffer,&(UECSaccess_NOSPC_GETP1A[0]),&progPos)){	//include form data
+			HTTPGetFormDataCCMPage();		//ccmの設定画面
+			HTTPPrintRedirect(1);				//リダイレクト？※
+		}else if(UECSFindPGMChar(UECSbuffer,&(UECSaccess_NOSPC_GETP2A[0]),&progPos)){	//include form data		
+			HTTPGetFormDataLANSettingPage();		//LANの設定をEEPROOMに書き込む
+			HTTPsendPageLANSetting();						//LANの設定ページ
+		}else if(UECSFindPGMChar(UECSbuffer,&(UECSaccess_NOSPC_GETP3A[0]),&progPos)){
+			int ccmid=HTTPGetFormDataEDITCCMPage();		//ccmの値をEEPROMに書き込んで返り値としてCCMidを返す
+			//Type Reset
+			//例外を除去する・
+			if(ccmid==999){
+				for(int i=0;i<U_MAX_CCM;i++){
+					strcpy_P(U_ccmList[i].typeStr, U_ccmList[i].type);	//typeをコピーする
+					UECS_EEPROM_SaveCCMType(i);		//EEPROMにccmtypeを書き込む
 				}
-		else if(UECSFindPGMChar(UECSbuffer,&(UECSaccess_NOSPC_GETP2A[0]),&progPos))//include form data
-				{
-				HTTPGetFormDataLANSettingPage();
-				HTTPsendPageLANSetting();
-				}
-		else if(UECSFindPGMChar(UECSbuffer,&(UECSaccess_NOSPC_GETP3A[0]),&progPos))
-				{
-				int ccmid=HTTPGetFormDataEDITCCMPage();
-				//Type Reset
-				if(ccmid==999)
-						{
-						for(int i=0;i<U_MAX_CCM;i++)
-									{
-									strcpy_P(U_ccmList[i].typeStr, U_ccmList[i].type);
-									UECS_EEPROM_SaveCCMType(i);
-									}
-						HTTPPrintRedirect(3);
-						}
-				//Attribute Reset
-				else if(ccmid-100>=0 && ccmid-100<U_MAX_CCM)
-						{
-						HTTPGetFormDataFillCCMAttributePage();
-						HTTPPrintRedirect(3);
-						}
-				//Err
-				else if(ccmid<0 || ccmid>=U_MAX_CCM){HTTPsendPageError();}
+				HTTPPrintRedirect(3);	//リダイレクト
+			//何を確認しているのかよくわからない？※
+			}else if(ccmid-100>=0 && ccmid-100<U_MAX_CCM){	//Attribute Reset	
+				HTTPGetFormDataFillCCMAttributePage();		//データをEEPROMに保存
+				HTTPPrintRedirect(3);		//リダイレクト
+			}
+			//Err
+			//ccmidが範囲外であればエラーページを返す
+			else if(ccmid<0 || ccmid>=U_MAX_CCM){
+				HTTPsendPageError();
+			}else{	//それ以外であればssmeditページの作成
 				//CCM Edit
-				else{HTTPsendPageEDITCCM(ccmid);}
+				HTTPsendPageEDITCCM(ccmid);
+			}
 				
-				}
-		/*
-		else if(UECSFindPGMChar(UECSbuffer,&(UECSaccess_NOSPC_GETP4[0]),&progPos))//reset CCM type
-				{
-				for(int i=0;i<U_MAX_CCM;i++)
-					{
-					strcpy_P(U_ccmList[i].typeStr, U_ccmList[i].type);
-					UECS_EEPROM_SaveCCMType(i);
-					}
-					
-					HTTPPrintRedirectP3();
-				}
-		else if(UECSFindPGMChar(UECSbuffer,&(UECSaccess_NOSPC_GETP5A[0]),&progPos))//reset CCM type
-				{
-					HTTPGetFormDataFillCCMAttributePage();
-					HTTPPrintRedirectP3();
-				}*/
-		else {HTTPsendPageError();}
+		}else {
+			HTTPsendPageError();		//エラーページを返す
+		}
   }
-  UECSclient.stop();
+  UECSclient.stop();	//サーバーとの接続を切断
 }
 
 
 
 //----------------------------------
+//ccmの情報の取り込みと更新確認
+//第一引数：
+//第二引数：
 void UECSupdate16520portReceive( UECSTEMPCCM* _tempCCM, unsigned long _millis){
-  int packetSize = UECS_UDP16520.parsePacket();
+	//https://garretlab.web.fc2.com/arduino_reference/libraries/standard_libraries/Ethernet/EthernetUDP/parsePacket.html
+  int packetSize = UECS_UDP16520.parsePacket();		//パケットのサイズを取得、バッファを読む前に呼ぶ必要がある
   int matchCCMID=-1;
-  if(packetSize){
-  	  
-   	ClearMainBuffer();
-    _tempCCM->address = UECS_UDP16520.remoteIP();   
-    UECSbuffer[UECS_UDP16520.read(UECSbuffer, BUF_SIZE-1)]='\0';
-    UDPFilterToBuffer();
-
-    if(UECSparseRec( _tempCCM,&matchCCMID))
-    	{UECScheckUpDate( _tempCCM, _millis,matchCCMID);}
-
-
+  if(packetSize){ 		//パケットを受信した時
+   	ClearMainBuffer();	//バッファのクリア
+    _tempCCM->address = UECS_UDP16520.remoteIP();   //リモートコネクションのIPアドレスを取得
+    UECSbuffer[UECS_UDP16520.read(UECSbuffer, BUF_SIZE-1)]='\0';	//終端にはnullをつける
+    UDPFilterToBuffer();		//不要なアスキーコードを除く
+		if(UECSparseRec( _tempCCM,&matchCCMID)){		//ccmの情報をオブジェクトに入れる
+			UECScheckUpDate( _tempCCM, _millis,matchCCMID);		//UDPが更新されていないかの確認
+		}
   }
-
 }
+
 //----------------------------------
+//スキャンポート
 void UECSupdate16529port( UECSTEMPCCM* _tempCCM){
-
-  int packetSize = UECS_UDP16529.parsePacket();
-   if(packetSize){
-   	   
-   	   ClearMainBuffer();
-      _tempCCM->address = UECS_UDP16529.remoteIP();   
-      UECSbuffer[UECS_UDP16529.read(UECSbuffer, BUF_SIZE-1)]='\0';
-	  UDPFilterToBuffer();
-	  
-	  
-      if(UECSresNodeScan()){
-         UECS_UDP16529.beginPacket(_tempCCM->address, 16529);
-         UECS_UDP16529.write(UECSbuffer);
-         
-         if(UECS_UDP16529.endPacket()==0)
-         	{
-  			UECSresetEthernet(); //when udpsend failed,reset ethernet status
-         	}
-      }     
-   }
+	int packetSize = UECS_UDP16529.parsePacket();		//パケットのサイズを確認
+	if(packetSize){  	   
+		ClearMainBuffer();
+		_tempCCM->address = UECS_UDP16529.remoteIP();  	//ipアドレスを取得 
+		UECSbuffer[UECS_UDP16529.read(UECSbuffer, BUF_SIZE-1)]='\0';	//終端にnullをつける
+		UDPFilterToBuffer();		//不要なテキストを除去
+		if(UECSresNodeScan()){	//スキャンに返信する
+			//リモートコネクションに対してUDPデータの書き込みを開始する
+			UECS_UDP16529.beginPacket(_tempCCM->address, 16529);
+			UECS_UDP16529.write(UECSbuffer);		//バッファの内容を書き込み
+			if(UECS_UDP16529.endPacket()==0){		//送信に失敗したらイーサネットの初期化
+				UECSresetEthernet(); //when udpsend failed,reset ethernet status
+			}
+		}     
+	}
 }
 
 //----------------------------------
-void UECSupdate16521port( UECSTEMPCCM* _tempCCM){
-
-  int packetSize = UECS_UDP16521.parsePacket();
-   if(packetSize){
-   	   
-   	   ClearMainBuffer();
-      _tempCCM->address = UECS_UDP16521.remoteIP();   
-      UECSbuffer[UECS_UDP16521.read(UECSbuffer, BUF_SIZE-1)]='\0';
-	  UDPFilterToBuffer();
-	  UECSresCCMSearchAndSend(_tempCCM);
-   }
+//サーチに対する返信
+//引数：読み出した内容の保存場所
+void UECSupdate16521port( UECSTEMPCCM* _tempCCM){	//ccmのサーチと送信要求
+  int packetSize = UECS_UDP16521.parsePacket();		//パケットサイズの把握
+	if(packetSize){   
+		ClearMainBuffer();
+		_tempCCM->address = UECS_UDP16521.remoteIP();  	//ipアドレスの取得 
+		UECSbuffer[UECS_UDP16521.read(UECSbuffer, BUF_SIZE-1)]='\0';	//終端にnullを入れる
+	  UDPFilterToBuffer();		//余計なテキストの除去
+	  UECSresCCMSearchAndSend(_tempCCM);		//ccmのサーチに対して返信
+	}
 }
 
 
 //----------------------------------
-
-
 void UECSsetup(){
+	UECSCheckProgramUpdate();		//多分プログラムのアップデートチェック？
+	delay(300);
+	pinMode(U_InitPin,INPUT_PULLUP);		//ipアドレスのリセットピンの準備
+	//セーフモードかどうかの確認
+	if(digitalRead(U_InitPin) == U_InitPin_Sense || UECS_EEPROM_readLong(EEPROM_IP)==-1){
+		U_orgAttribute.status|=STATUS_SAFEMODE;
+  }else{
+	 	U_orgAttribute.status&=STATUS_SAFEMODE_MASK;//Release safemode
+	}
 
-UECSCheckProgramUpdate();
-delay(300);
-
-
-pinMode(U_InitPin,INPUT_PULLUP);
-
-if(digitalRead(U_InitPin) == U_InitPin_Sense || UECS_EEPROM_readLong(EEPROM_IP)==-1)
-	{
-	U_orgAttribute.status|=STATUS_SAFEMODE;
-    }
-	 else
-	 {
-	 U_orgAttribute.status&=STATUS_SAFEMODE_MASK;//Release safemode
-	 }
-
-  UECSinitOrgAttribute();
-  UECSinitCCMList();
-  UserInit();
-  UECSstartEthernet();
+  UECSinitOrgAttribute();	//接続情報の確認
+  UECSinitCCMList();			//UECSccmの初期化
+  UserInit();							//メインファイルで設定する（ユーザー任意の初期化）
+  UECSstartEthernet();		//イーサネットサーバーを立ち上げてポートを開く
   
 }
+
 //---------------------------------------------
-void UECSCheckProgramUpdate()
-{
-//Program Upadate Check
-ClearMainBuffer();
-UDPAddPGMCharToBuffer(&(ProgramDate[0]));
-UDPAddPGMCharToBuffer(&(ProgramTime[0]));
-//check and write datetime
-int i;
-for(i=0;i<(EEPROM_CCMTOP-EEPROM_PROGRAMDATETIME);i++)
-	{
-	
-	if(EEPROM.read(i+EEPROM_PROGRAMDATETIME)!=UECSbuffer[i])
-		{
-		U_orgAttribute.status|=STATUS_PROGRAMUPDATE;
-		EEPROM.write(i+EEPROM_PROGRAMDATETIME,UECSbuffer[i]);
+//プログラムがアップデートされていないか確認する？
+void UECSCheckProgramUpdate(){
+	//Program Upadate Check
+	ClearMainBuffer();
+	UDPAddPGMCharToBuffer(&(ProgramDate[0]));		//日付けの取得
+	UDPAddPGMCharToBuffer(&(ProgramTime[0]));		//時間の取得
+	//check and write datetime
+	int i;
+	for(i=0;i<(EEPROM_CCMTOP-EEPROM_PROGRAMDATETIME);i++){
+		//日時をEEPROMに書き込む
+		if(EEPROM.read(i+EEPROM_PROGRAMDATETIME)!=UECSbuffer[i]){
+			//何をやっているかよくわからない
+			U_orgAttribute.status|=STATUS_PROGRAMUPDATE;
+			EEPROM.write(i+EEPROM_PROGRAMDATETIME,UECSbuffer[i]);
 		}
-	if(UECSbuffer[i]=='\0'){break;}
+		if(UECSbuffer[i]=='\0'){	//終端にnullをつける
+			break;
+		}
 	}
 }
 //---------------------------------------------
@@ -1553,67 +1530,65 @@ for(i=0;i<(EEPROM_CCMTOP-EEPROM_PROGRAMDATETIME);i++)
 //--------------------------------------------------------------
 //EEPROMにccmTypeを書き込む
 //引数：ccmid
-void UECS_EEPROM_SaveCCMType(int ccmid)
-{
+void UECS_EEPROM_SaveCCMType(int ccmid){
 #if defined(_ARDUINIO_MEGA_SETTING)
-if(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_L_CCM_TOTAL>EEPROM_CCMEND){return;}//out of memory
+	if(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_L_CCM_TOTAL>EEPROM_CCMEND){return;}//out of memory
 #endif
-
-int i;
-//type��������
-for(i=0;i<=MAX_CCMTYPESIZE;i++)
-	{
-		//保存されているccmidと異なる時はccmidをEEPROMに保存する
-	if(EEPROM.read(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_TYPETXT+i)!=U_ccmList[ccmid].typeStr[i])
-		{
-		EEPROM.write(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_TYPETXT+i,U_ccmList[ccmid].typeStr[i]);
+	int i;
+	//type��������
+	for(i=0;i<=MAX_CCMTYPESIZE;i++){
+			//保存されているccmidと異なる時はccmidをEEPROMに保存する
+		if(EEPROM.read(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_TYPETXT+i)!=U_ccmList[ccmid].typeStr[i]){
+			EEPROM.write(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_TYPETXT+i,U_ccmList[ccmid].typeStr[i]);
 		}
-	if(U_ccmList[ccmid].typeStr[i]=='\0'){break;}		//nullで終端を把握
+		if(U_ccmList[ccmid].typeStr[i]=='\0'){
+			break;
+		}		//nullで終端を把握
 	}
 }
 //--------------------------------------------------------------
 //ccmの属性をEEPROMに保存する
 //引数：ccmid
-void UECS_EEPROM_SaveCCMAttribute(int ccmid)
-{
+void UECS_EEPROM_SaveCCMAttribute(int ccmid){
 #if defined(_ARDUINIO_MEGA_SETTING)
-if(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_L_CCM_TOTAL>EEPROM_CCMEND){return;}//out of memory
+	if(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_L_CCM_TOTAL>EEPROM_CCMEND){return;}//out of memory
 #endif
-//EEPROMでの保存内容と異なる時はccmの属性を書き込む
-if(EEPROM.read(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_ROOM)!=(unsigned char)(U_ccmList[ccmid].baseAttribute[AT_ROOM]))
-	{EEPROM.write(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_ROOM,(unsigned char)(U_ccmList[ccmid].baseAttribute[AT_ROOM]));}
-
-if(EEPROM.read(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_REGI)!=(unsigned char)(U_ccmList[ccmid].baseAttribute[AT_REGI]))
-	{EEPROM.write(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_REGI,(unsigned char)(U_ccmList[ccmid].baseAttribute[AT_REGI]));}
-
-if(EEPROM.read(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_ORDE_L)!=(unsigned char)(U_ccmList[ccmid].baseAttribute[AT_ORDE]))
-	{EEPROM.write(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_ORDE_L,(unsigned char)(U_ccmList[ccmid].baseAttribute[AT_ORDE]));}
-
-if(EEPROM.read(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_ORDE_H)!=(unsigned char)(U_ccmList[ccmid].baseAttribute[AT_ORDE]/256))
-	{EEPROM.write(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_ORDE_H,(unsigned char)(U_ccmList[ccmid].baseAttribute[AT_ORDE]/256));}
-
-if(EEPROM.read(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_PRIO)!=(unsigned char)(U_ccmList[ccmid].baseAttribute[AT_PRIO]))
-	{EEPROM.write(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_PRIO,(unsigned char)(U_ccmList[ccmid].baseAttribute[AT_PRIO]));}
-
+	//EEPROMでの保存内容と異なる時はccmの属性を書き込む
+	if(EEPROM.read(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_ROOM)!=(unsigned char)(U_ccmList[ccmid].baseAttribute[AT_ROOM])){
+		EEPROM.write(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_ROOM,(unsigned char)(U_ccmList[ccmid].baseAttribute[AT_ROOM]));
+	}
+	if(EEPROM.read(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_REGI)!=(unsigned char)(U_ccmList[ccmid].baseAttribute[AT_REGI])){
+		EEPROM.write(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_REGI,(unsigned char)(U_ccmList[ccmid].baseAttribute[AT_REGI]));
+	}
+	if(EEPROM.read(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_ORDE_L)!=(unsigned char)(U_ccmList[ccmid].baseAttribute[AT_ORDE])){
+		EEPROM.write(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_ORDE_L,(unsigned char)(U_ccmList[ccmid].baseAttribute[AT_ORDE]));
+	}
+	if(EEPROM.read(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_ORDE_H)!=(unsigned char)(U_ccmList[ccmid].baseAttribute[AT_ORDE]/256)){
+		EEPROM.write(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_ORDE_H,(unsigned char)(U_ccmList[ccmid].baseAttribute[AT_ORDE]/256));
+	}
+	if(EEPROM.read(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_PRIO)!=(unsigned char)(U_ccmList[ccmid].baseAttribute[AT_PRIO])){
+		EEPROM.write(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_PRIO,(unsigned char)(U_ccmList[ccmid].baseAttribute[AT_PRIO]));
+	}
 }
 
 //--------------------------------------------------------------
-//
+//EEPROMからccmの設定情報を読み出す
 //引数：ccmid
-void UECS_EEPROM_LoadCCMSetting(int ccmid)
-{
+void UECS_EEPROM_LoadCCMSetting(int ccmid){
 #if defined(_ARDUINIO_MEGA_SETTING)
-if(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_L_CCM_TOTAL>EEPROM_CCMEND){return;}//out of memory
+	if(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_L_CCM_TOTAL>EEPROM_CCMEND){return;}//out of memory
 #endif
-
-int i;
-for(i=0;i<MAX_CCMTYPESIZE;i++)
-	{
+	int i;
+	for(i=0;i<MAX_CCMTYPESIZE;i++){
 		//設定内容を読み出す
-	U_ccmList[ccmid].typeStr[i]=EEPROM.read(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_TYPETXT+i);
-	//終端の把握
-	if(U_ccmList[ccmid].typeStr[i]==255){U_ccmList[ccmid].typeStr[i]='x';break;}
-	if(U_ccmList[ccmid].typeStr[i]=='\0'){break;}
+		U_ccmList[ccmid].typeStr[i]=EEPROM.read(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_TYPETXT+i);
+		//終端の把握
+		if(U_ccmList[ccmid].typeStr[i]==255){
+			U_ccmList[ccmid].typeStr[i]='x';break;
+		}
+		if(U_ccmList[ccmid].typeStr[i]=='\0'){
+			break;
+		}
 	}
 	//終端把握のためにnullをつける
 	U_ccmList[ccmid].typeStr[i]='\0';
@@ -1627,79 +1602,75 @@ U_ccmList[ccmid].baseAttribute[AT_ORDE]=
 U_ccmList[ccmid].baseAttribute[AT_PRIO]=EEPROM.read(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_PRIO) & 31;
 U_ccmList[ccmid].attribute[AT_PRIO] =U_ccmList[ccmid].baseAttribute[AT_PRIO];
 */
-//読み出した設定内容をccmに代入する
-U_ccmList[ccmid].baseAttribute[AT_ROOM]=EEPROM.read(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_ROOM);
-U_ccmList[ccmid].baseAttribute[AT_REGI]=EEPROM.read(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_REGI);
-U_ccmList[ccmid].baseAttribute[AT_ORDE]=(EEPROM.read(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_ORDE_L)+EEPROM.read(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_ORDE_H)*256);
-U_ccmList[ccmid].baseAttribute[AT_PRIO]=EEPROM.read(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_PRIO);
+	//読み出した設定内容をccmに代入する
+	U_ccmList[ccmid].baseAttribute[AT_ROOM]=EEPROM.read(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_ROOM);
+	U_ccmList[ccmid].baseAttribute[AT_REGI]=EEPROM.read(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_REGI);
+	U_ccmList[ccmid].baseAttribute[AT_ORDE]=(EEPROM.read(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_ORDE_L)+EEPROM.read(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_ORDE_H)*256);
+	U_ccmList[ccmid].baseAttribute[AT_PRIO]=EEPROM.read(ccmid*EEPROM_L_CCM_TOTAL+EEPROM_CCMTOP+EEPROM_L_CCM_PRIO);
 
-//Prepare the correct values for the Arduino where the data will be written for the first time.
-//始めてデータを書き込むArduinoには正しい値を用意する
-//始めて使用する際の初期値のことだと思われる
-if(U_ccmList[ccmid].baseAttribute[AT_ROOM]==0xff)
-	{
-	U_ccmList[ccmid].baseAttribute[AT_ROOM]=1;
-	U_ccmList[ccmid].baseAttribute[AT_REGI]=1;
-	U_ccmList[ccmid].baseAttribute[AT_ORDE]=1;
-	U_ccmList[ccmid].baseAttribute[AT_PRIO]=U_ccmList[ccmid].attribute[AT_PRIO];
-	UECS_EEPROM_SaveCCMAttribute(ccmid);		//ccmの属性をEEPROMに保存する
+	//Prepare the correct values for the Arduino where the data will be written for the first time.
+	//始めてデータを書き込むArduinoには正しい値を用意する
+	//始めて使用する際の初期値のことだと思われる
+	if(U_ccmList[ccmid].baseAttribute[AT_ROOM]==0xff){
+		U_ccmList[ccmid].baseAttribute[AT_ROOM]=1;
+		U_ccmList[ccmid].baseAttribute[AT_REGI]=1;
+		U_ccmList[ccmid].baseAttribute[AT_ORDE]=1;
+		U_ccmList[ccmid].baseAttribute[AT_PRIO]=U_ccmList[ccmid].attribute[AT_PRIO];
+		UECS_EEPROM_SaveCCMAttribute(ccmid);		//ccmの属性をEEPROMに保存する
 	}
-//プライオリティの設定
-U_ccmList[ccmid].attribute[AT_PRIO] =U_ccmList[ccmid].baseAttribute[AT_PRIO];
-
+	//プライオリティの設定
+	U_ccmList[ccmid].attribute[AT_PRIO] =U_ccmList[ccmid].baseAttribute[AT_PRIO];
 }
 
 //---------------------------------------------
-//
+//イーサネットサーバーを立ち上げてポートを開く
 void UECSstartEthernet(){
 	//ethernetライブラリとネットワークの初期化　
 	//https://garretlab.web.fc2.com/arduino_reference/libraries/standard_libraries/Ethernet/EthernetClass/begin.html
   //セーフモードの時の設定
-  if(U_orgAttribute.status&STATUS_SAFEMODE)
-  	{
+  if(U_orgAttribute.status&STATUS_SAFEMODE){
   	byte defip[]     = {192,168,1,7};
   	//byte defsubnet[] = {255,255,255,0};
   	byte defdummy[] = {0,0,0,0};
   	Ethernet.begin(U_orgAttribute.mac, defip, defdummy,defdummy,defdummy);
-  	}
-  	else
-		//セーフモードでないときはネットワークの設定情報を使用する
-    {
-    Ethernet.begin(U_orgAttribute.mac, U_orgAttribute.ip, U_orgAttribute.dns, U_orgAttribute.gateway, U_orgAttribute.subnet);
-    }
-
+	}else{//セーフモードでないときはネットワークの設定情報を使用する    
+		Ethernet.begin(U_orgAttribute.mac, U_orgAttribute.ip, U_orgAttribute.dns, U_orgAttribute.gateway, U_orgAttribute.subnet);
+	}
 	//サーバーを立ち上げてポートを開く　※
   UECSlogserver.begin();
-  UECS_UDP16520.begin(16520);
-  UECS_UDP16529.begin(16529);
-  UECS_UDP16521.begin(16521);
+  UECS_UDP16520.begin(16520);		//デフォルト
+  UECS_UDP16529.begin(16529);		//スキャン
+  UECS_UDP16521.begin(16521);		//サーチ
 }
 
 //---------------------------------------------------------
 //イーサネットの初期化
-void UECSresetEthernet()
-{
+void UECSresetEthernet(){
   	//UECS_UDP16520.stop();
   	//UECS_UDP16529.stop();
   	//SPI.end();
-  	UECSstartEthernet();
+  	UECSstartEthernet();		//イーサネットサーバーを立ち上げてポートを開く
 }
 //------------------------------------------------------------------------
 //Software reset command　ソフトウェアリセット
 // call 0
 //https://ehbtj.com/electronics/arduino-software-reset/
 typedef int (*CALLADDR)(void);
-void SoftReset(void)
-{
-CALLADDR resetAddr=0;
-(resetAddr)();
+void SoftReset(void){
+	CALLADDR resetAddr=0;
+	(resetAddr)();
 }
+
+
 //---------------------------------------------------------
 //---------------------------------------------------------
 //----------------------------------------------------------------------
 //uecsのメイン関数
 void UECSloop(){
 
+	/*前回のループから1秒経過していなくてもデータの受信はできるがデータは捨てる？
+		おそらくタイマー割り込みで制御する方が妥当だと思われる
+	*/
   // network Check
   // 1. http request
   // 2. udp16520Receive
@@ -1707,54 +1678,49 @@ void UECSloop(){
   // 4. udp16521Receive and Send
   // << USER MANAGEMENT >>
   // 5. udp16520Send
-  HTTPcheckRequest();
-  UECSupdate16520portReceive(&UECStempCCM, UECSnowmillis);
-  UECSupdate16529port(&UECStempCCM);
-  UECSupdate16521port(&UECStempCCM);
-  UserEveryLoop();  
+  HTTPcheckRequest();		//httpのリクエストを確認
+  UECSupdate16520portReceive(&UECStempCCM, UECSnowmillis);	//ccmの情報の取り込みと更新確認？
+  UECSupdate16529port(&UECStempCCM);		//スキャン(他のノードからのデータの取り込み？)
+  UECSupdate16521port(&UECStempCCM);		//サーチに対する返信
+  UserEveryLoop();  										//ループ毎に行う処理（ユーザー設定）
 
- UECSnowmillis = millis();
- if(UECSnowmillis==UECSlastmillis){return;}
+ 	UECSnowmillis = millis();							//現在の時間の把握
+ 	if(UECSnowmillis==UECSlastmillis){return;}	//前のループから時間が過ぎていなければ中断
  
-//how long elapsed?
-unsigned long td=UECSnowmillis-UECSlastmillis;
-//check overflow 
-if(UECSnowmillis<UECSlastmillis)
-	{
-	td=(4294967295-UECSlastmillis)+UECSnowmillis;
+	//how long elapsed?
+	unsigned long td=UECSnowmillis-UECSlastmillis;		//前回のループからの経過時間
+	//check overflow 	tdがオーバーフローしたらリセットする
+	if(UECSnowmillis<UECSlastmillis){
+		td=(4294967295-UECSlastmillis)+UECSnowmillis;
 	}
 
-//over 1msec
-	UECSsyscounter1s+=td;
-	UECSlastmillis=UECSnowmillis;
-	UECSautomaticValidManager(td);
+	//over 1msec
+	UECSsyscounter1s+=td;							//1秒までカウント
+	UECSlastmillis=UECSnowmillis;			//経過時間を把握するための処理
+	UECSautomaticValidManager(td);		//受信パケットが有効時間内かどうか確認する
 
 
-  if(UECSsyscounter1s < 999){return;}
-//over 1000msec
-    UECSsyscounter1s = 0;
-    UECSsyscounter60s++;
+  if(UECSsyscounter1s < 999){return;}		//1秒経過してなかったらここで中断
+	//over 1000msec
+	UECSsyscounter1s = 0;		//カウンターのリセット→カウンターはグローバルにある
+	UECSsyscounter60s++;		//1分間をカウントしていく
     
-    if(UECSsyscounter60s >= 60)
-    {
-      UserEveryMinute();
-      UECSsyscounter60s = 0;  
-    }   
-    
-    
-    UECSautomaticSendManager();
-    UserEverySecond();
-    
-    for(int i = 0; i < U_MAX_CCM; i++)
-      {
-     if(U_ccmList[i].sender && U_ccmList[i].flagStimeRfirst && U_ccmList[i].ccmLevel != NONE)
-     	{
-        UECSCreateCCMPacketAndSend(&U_ccmList[i]);
-       }
+	if(UECSsyscounter60s >= 60){		//1分間経過した時の処理を行う
+		UserEveryMinute();
+		UECSsyscounter60s = 0;  
+	}     
 
-    }   
-
+	UECSautomaticSendManager();		//ロードバランシング
+	UserEverySecond();						//毎秒行う処理（ユーザーが任意に書くことができる）
+    
+	for(int i = 0; i < U_MAX_CCM; i++){				//ccmの数だけ繰り返す
+		//条件がそろっていたらccmを送信する
+		if(U_ccmList[i].sender && U_ccmList[i].flagStimeRfirst && U_ccmList[i].ccmLevel != NONE){
+			UECSCreateCCMPacketAndSend(&U_ccmList[i]);
+		}
+	}   
 }
+
 //------------------------------------------------------
 //
 void UECSinitOrgAttribute(){
