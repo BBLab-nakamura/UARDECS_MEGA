@@ -866,7 +866,7 @@ void HTTPsendPageCCM(){
 			HTTPAddPGMCharToBuffer(U_html[i].name);
 			HTTPAddPGMCharToBuffer(&(UECStdtd[0]));
 			// only value
-			//show dataが選択されたとき
+			//数値表示カラム
 			if(U_html[i].pattern == UECSSHOWDATA){
 				if(U_html[i].decimal != 0){		//小数に変換する
 					dtostrf(((double)*U_html[i].data) / pow(10, U_html[i].decimal), -1, U_html[i].decimal,UECStempStr20);
@@ -875,13 +875,13 @@ void HTTPsendPageCCM(){
 				}
 				HTTPAddCharToBuffer(UECStempStr20);
 				HTTPAddPGMCharToBuffer(&(UECShtmlInputHidden0[0]));		//hiden 
-			}else if(U_html[i].pattern == UECSINPUTDATA){		//inputが選択されたとき
+			}else if(U_html[i].pattern == UECSINPUTDATA){		//数値入力欄の表示
 				HTTPAddPGMCharToBuffer(&(UECShtmlInputText[0]));		//htmlから入力する
 				//おそらく仮に表示する
 				dtostrf(((double)*U_html[i].data) / pow(10, U_html[i].decimal), -1, U_html[i].decimal,UECStempStr20);	
 				HTTPAddCharToBuffer(UECStempStr20);
 				HTTPAddPGMCharToBuffer(UECSSlashTagClose);		//タグを閉じる
-			}else if(U_html[i].pattern == UECSSELECTDATA){
+			}else if(U_html[i].pattern == UECSSELECTDATA){		//ドロップダウンリストの表示
 				HTTPAddPGMCharToBuffer(&(UECShtmlSelect[0]));	//htmlでselectタグを使用する
 
 				for(int j = 0; j < U_html[i].selectnum; j++){
@@ -895,7 +895,7 @@ void HTTPsendPageCCM(){
 					HTTPAddPGMCharToBuffer(U_html[i].selectname[j]);//************
 				} 
 				HTTPAddPGMCharToBuffer(&(UECShtmlSelectEnd[0])); 
-			}else if(U_html[i].pattern == UECSSHOWSTRING){		//show stringが選択されている時
+			}else if(U_html[i].pattern == UECSSHOWSTRING){		//文字列表示カラム
 				//dataメンバに入っている内容を表示する？　※
 				HTTPAddPGMCharToBuffer(U_html[i].selectname[(int)*(U_html[i].data)]);//************
 				HTTPAddPGMCharToBuffer(&(UECShtmlInputHidden0[0])); 
@@ -1029,6 +1029,7 @@ void HTTPsendPageEDITCCM(int ccmid){
 //---------------------------------------------####################
 //---------------------------------------------####################
 //---------------------------------------------####################
+//CCMの設定画面
 void HTTPGetFormDataCCMPage(){
 	//web設定画面で表示すべき項目がないときは終了
 	if(U_HtmlLine==0){
@@ -1040,157 +1041,218 @@ void HTTPGetFormDataCCMPage(){
 	int progPos=0;
 	long tempValue;
 	unsigned char tempDecimal;
-
+	//表示項目だけ繰り返す
 	for(i=0;i<U_HtmlLine;i++){
-		if(!UECSFindPGMChar(&UECSbuffer[startPos],UECSaccess_LEQUAL,&progPos)){
+		if(!UECSFindPGMChar(&UECSbuffer[startPos],UECSaccess_LEQUAL,&progPos)){		//Lを探す
 			continue;
 		}
 		startPos+=progPos;
-		if(U_html[i].pattern == UECSINPUTDATA){
+		if(U_html[i].pattern == UECSINPUTDATA){	//数値入力欄の表示
+			//小数を扱える形に変換する
 			if(!UECSGetFixedFloatValue(&UECSbuffer[startPos],&tempValue,&tempDecimal,&progPos)){
 				return;
 			}
 			startPos+=progPos;
+			//入力値の確認用変数
 			if(UECSbuffer[startPos]!='&'){
 				return;
 			}//last '&' not found
-				
+			//小数の桁数の違いを把握する	
 			int dif_decimal=U_html[i].decimal-tempDecimal;
+			//小数の桁数の違いによって処理を振り分ける
 			if(dif_decimal>=0){
 				*U_html[i].data = tempValue*pow(10,dif_decimal);
 			}else{
 				*U_html[i].data = tempValue/pow(10,-dif_decimal);
 			}
-
+			//最小値よりも小さいデータは使用できない
 			if(*U_html[i].data<U_html[i].minValue){
 				*U_html[i].data=U_html[i].minValue;
 			}
+			//最大値よりも大きいデータは使用できない
 			if(*U_html[i].data>U_html[i].maxValue){
 				*U_html[i].data=U_html[i].maxValue;
 			}
+		//ドロップダウンリストの表示
 		}else if(U_html[i].pattern == UECSSELECTDATA){
+			//小数を扱える形に変換
 			if(!UECSGetFixedFloatValue(&UECSbuffer[startPos],&tempValue,&tempDecimal,&progPos)){
 				return;
 			}
 			startPos+=progPos;
-				
+			//入力値の確認用の変数
 			if(UECSbuffer[startPos]!='&'){
 				return;
 			}//last '&' not found
-				
+			//小数の時ははじく？	
 			if(tempDecimal!=0){
 				return;
 			}
 			*U_html[i].data=tempValue%U_html[i].selectnum;//cut too big value
 		}			
 	}
-	OnWebFormRecieved();	
+	OnWebFormRecieved();	//webの中で更新されたデータを受け取る
 	for(i = 0; i < U_HtmlLine; i++){
+		//EEPROMに書き込む
 		UECS_EEPROM_writeLong(EEPROM_WEBDATA + i * 4, *(U_html[i].data));
 	}
 }
 
 
-
-int HTTPGetFormDataEDITCCMPage()
-{
+//webで設定したCCMの情報をEEPROMに保存する
+//返り値：CCMid、エラーの時は-1
+int HTTPGetFormDataEDITCCMPage(){
 	int i;
 	int startPos=0;
 	int progPos=0;
 	unsigned char tempDecimal;
 	long ccmid,room,region,order,priority;
-
-	if(!UECSFindPGMChar(&UECSbuffer[startPos],UECSaccess_LEQUAL,&progPos)){return -1;}
+	//L=が見つからなかったらエラーを返す
+	if(!UECSFindPGMChar(&UECSbuffer[startPos],UECSaccess_LEQUAL,&progPos)){
+		return -1;
+	}
 	startPos+=progPos;
-	if(!UECSGetFixedFloatValue(&UECSbuffer[startPos],&ccmid,&tempDecimal,&progPos)){return -1;}
+	//小数を扱える形に変換する
+	if(!UECSGetFixedFloatValue(&UECSbuffer[startPos],&ccmid,&tempDecimal,&progPos)){
+		return -1;
+	}
 	startPos+=progPos;
+	
 	//if(UECSbuffer[startPos]!='&'){return -1;}//last '&' not found
-	if(tempDecimal!=0){return -1;}
+	//小数を含んでいたらエラーを返す
+	if(tempDecimal!=0){
+		return -1;
+	}
 	
 	//Room
-	if(!UECSFindPGMChar(&UECSbuffer[startPos],UECSaccess_LEQUAL,&progPos)){return ccmid;}
+	//正常なデータか確認する
+	if(!UECSFindPGMChar(&UECSbuffer[startPos],UECSaccess_LEQUAL,&progPos)){
+		return ccmid;
+	}
 	startPos+=progPos;
-	if(!UECSGetFixedFloatValue(&UECSbuffer[startPos],&room,&tempDecimal,&progPos)){return ccmid;}
+	if(!UECSGetFixedFloatValue(&UECSbuffer[startPos],&room,&tempDecimal,&progPos)){
+		return ccmid;
+	}
 	startPos+=progPos;
-	if(UECSbuffer[startPos]!='&'){return ccmid;}//last '&' not found
-	if(tempDecimal!=0){return ccmid;}
-	room=constrain(room,0,127);
+	if(UECSbuffer[startPos]!='&'){
+		return ccmid;
+	}//last '&' not found
+	if(tempDecimal!=0){
+		return ccmid;
+	}
+	/*constrain 数値をある範囲に制限する:roomを0から127に制限する
+	room < 0 の時は 0, room > 127の時は127*/
+	room=constrain(room,0,127);		//roomの範囲の確認
 	
 	//Region
-	if(!UECSFindPGMChar(&UECSbuffer[startPos],UECSaccess_LEQUAL,&progPos)){return ccmid;}
+	//正常なデータか確認する
+	if(!UECSFindPGMChar(&UECSbuffer[startPos],UECSaccess_LEQUAL,&progPos)){
+		return ccmid;
+	}
 	startPos+=progPos;
-	if(!UECSGetFixedFloatValue(&UECSbuffer[startPos],&region,&tempDecimal,&progPos)){return ccmid;}
+	if(!UECSGetFixedFloatValue(&UECSbuffer[startPos],&region,&tempDecimal,&progPos)){
+		return ccmid;
+	}
 	startPos+=progPos;
-	if(UECSbuffer[startPos]!='&'){return ccmid;}//last '&' not found
-	if(tempDecimal!=0){return ccmid;}
+	if(UECSbuffer[startPos]!='&'){
+		return ccmid;
+	}//last '&' not found
+	if(tempDecimal!=0){
+		return ccmid;
+	}
+	//regionを正常な範囲にする
 	region=constrain(region,0,127);
 	
 	//Order
-	if(!UECSFindPGMChar(&UECSbuffer[startPos],UECSaccess_LEQUAL,&progPos)){return ccmid;}
+	//正常なデータか確認する
+	if(!UECSFindPGMChar(&UECSbuffer[startPos],UECSaccess_LEQUAL,&progPos)){
+		return ccmid;
+	}
 	startPos+=progPos;
-	if(!UECSGetFixedFloatValue(&UECSbuffer[startPos],&order,&tempDecimal,&progPos)){return ccmid;}
+	if(!UECSGetFixedFloatValue(&UECSbuffer[startPos],&order,&tempDecimal,&progPos)){
+		return ccmid;
+	}
 	startPos+=progPos;
-	if(UECSbuffer[startPos]!='&'){return ccmid;}//last '&' not found
-	if(tempDecimal!=0){return ccmid;}
+	if(UECSbuffer[startPos]!='&'){
+		return ccmid;
+	}//last '&' not found
+	if(tempDecimal!=0){
+		return ccmid;
+	}
+	//orderを適正な範囲にする
 	order=constrain(order,0,30000);
 	
 	//Priority
-	if(!UECSFindPGMChar(&UECSbuffer[startPos],UECSaccess_LEQUAL,&progPos)){return ccmid;}
+	//正常なデータか確認する
+	if(!UECSFindPGMChar(&UECSbuffer[startPos],UECSaccess_LEQUAL,&progPos)){
+		return ccmid;
+	}
 	startPos+=progPos;
-	if(!UECSGetFixedFloatValue(&UECSbuffer[startPos],&priority,&tempDecimal,&progPos)){return ccmid;}
+	if(!UECSGetFixedFloatValue(&UECSbuffer[startPos],&priority,&tempDecimal,&progPos)){
+		return ccmid;
+	}
 	startPos+=progPos;
-	if(UECSbuffer[startPos]!='&'){return ccmid;}//last '&' not found
-	if(tempDecimal!=0){return ccmid;}
+	if(UECSbuffer[startPos]!='&'){
+		return ccmid;
+	}//last '&' not found
+	if(tempDecimal!=0){
+		return ccmid;
+	}
+	//priorityを正常な範囲にする
 	priority=constrain(priority,0,30);
-	
+	//Web の Network Config 画面で設定したノードの基本属性
 	U_ccmList[ccmid].baseAttribute[AT_ROOM]=room;
 	U_ccmList[ccmid].baseAttribute[AT_REGI]=region;
 	U_ccmList[ccmid].baseAttribute[AT_ORDE]=order;
 	U_ccmList[ccmid].baseAttribute[AT_PRIO]=priority;
 	
-	UECS_EEPROM_SaveCCMAttribute(ccmid);
+	UECS_EEPROM_SaveCCMAttribute(ccmid);		//CCM情報をEEPROMに保存する
 	
-	 //---------------------------Type
-     if(!UECSFindPGMChar(&UECSbuffer[startPos],UECSaccess_LEQUAL,&progPos)){return ccmid;}
+	//---------------------------Type
+	//typeの情報を取得していく(CCMの名前？)
+	if(!UECSFindPGMChar(&UECSbuffer[startPos],UECSaccess_LEQUAL,&progPos)){
+		return ccmid;
+	}
 	startPos+=progPos;
 	
 	//copy type
 	int count=0;
-	for(i=0;i<MAX_CCMTYPESIZE;i++)
-		{
-		if(UECSbuffer[startPos+i]=='&'){break;}
-		if(UECSbuffer[startPos+i]=='\0' || i==MAX_CCMTYPESIZE){return ccmid;}//���[���Ȃ�
-
+	//&が出てきたら終了
+	for(i=0;i<MAX_CCMTYPESIZE;i++){
+		if(UECSbuffer[startPos+i]=='&'){
+			break;
+		}
+		//終端のnullが出てくるか、最後までいったらccmidを返す
+		if(UECSbuffer[startPos+i]=='\0' || i==MAX_CCMTYPESIZE){
+			return ccmid;
+		}//���[���Ȃ�
+		//数字又はアルファベット、ピリオドとハイフンが利用できる
 		if( (UECSbuffer[startPos+i]>='0' && UECSbuffer[startPos+i]<='9')||
 			(UECSbuffer[startPos+i]>='A' && UECSbuffer[startPos+i]<='Z')||
 			(UECSbuffer[startPos+i]>='a' && UECSbuffer[startPos+i]<='z')||
 			 UECSbuffer[startPos+i]=='.' || UECSbuffer[startPos+i]=='_' )
-			{
-			}
-		else
-			{UECSbuffer[startPos+i]='x';}
+		{
 
+		}else{
+			UECSbuffer[startPos+i]='x';			//使用できない記号はxで表示する
+		}
+		//UECS文字列テンプに入れる
 		UECStempStr20[i]=UECSbuffer[startPos+i];
 		count++;
-		}
-		
-		UECStempStr20[i]='\0';//set end code
-
-	
-	if(count>=3 && count<=19)
-		{
-		
+	}
+	//終端にnullを入れる
+	UECStempStr20[i]='\0';//set end code
+	//3文字目から19文字目までをEEPROMに保存する
+	if(count>=3 && count<=19){
 		strcpy(U_ccmList[ccmid].typeStr,UECStempStr20);
 		UECS_EEPROM_SaveCCMType(ccmid);
-		}
-	
-	
-	return ccmid;
+	}	
+	return ccmid;		//ccmidを返す
 }
 
 //--------------------------------------------------------------------------
-void HTTPGetFormDataLANSettingPage()
-{
+//LANの設定のページ
+void HTTPGetFormDataLANSettingPage(){
 	int i;
 	int startPos=0;
 	int progPos=0;
@@ -1205,67 +1267,72 @@ void HTTPGetFormDataLANSettingPage()
 	//total    16
 
 	//get value
-	for(i=0;i<16;i++)
-	{
-		if(!UECSFindPGMChar(&UECSbuffer[startPos],UECSaccess_LEQUAL,&progPos)){return ;}
+	//データの妥当性を判断する
+	for(i=0;i<16;i++){
+		if(!UECSFindPGMChar(&UECSbuffer[startPos],UECSaccess_LEQUAL,&progPos)){
+			return ;
+		}
 		startPos+=progPos;
-		if(!UECSGetFixedFloatValue(&UECSbuffer[startPos],&UECStempValue[i],&tempDecimal,&progPos)){return ;}
+		if(!UECSGetFixedFloatValue(&UECSbuffer[startPos],&UECStempValue[i],&tempDecimal,&progPos)){
+			return ;
+		}
 		startPos+=progPos;
-		if(UECSbuffer[startPos]!='&'){return ;}//last '&' not found
-		if(tempDecimal!=0){return ;}
-		
+		if(UECSbuffer[startPos]!='&'){
+			return ;
+		}//last '&' not found
+		if(tempDecimal!=0){
+			return ;
+		}
 		//check value and write
-		if(UECStempValue[i]<0 || UECStempValue[i]>255){return ;}//IP address
+		//0~255の間に入っているか確認する
+		if(UECStempValue[i]<0 || UECStempValue[i]>255){
+			return ;
+		}//IP address
 	}
 
-       for(int i = 0; i < 16; i++)
-       		{
-           	if(EEPROM.read(EEPROM_DATATOP + i)!=(unsigned char)UECStempValue[i])//skip same value
-           		{
-           	        EEPROM.write(EEPROM_DATATOP + i, (unsigned char)UECStempValue[i]);
-           	        U_orgAttribute.status |= STATUS_NEEDRESET;
-           	        
-           		}
-       		}
+	for(int i = 0; i < 16; i++){
+		if(EEPROM.read(EEPROM_DATATOP + i)!=(unsigned char)UECStempValue[i]){	//skip same value	
+			EEPROM.write(EEPROM_DATATOP + i, (unsigned char)UECStempValue[i]);
+			U_orgAttribute.status |= STATUS_NEEDRESET;					
+		}
+	}
        		
-       	//---------------------------NODE NAME
-       	if(!UECSFindPGMChar(&UECSbuffer[startPos],UECSaccess_LEQUAL,&progPos)){return ;}
-		startPos+=progPos;
+	//---------------------------NODE NAME
+	if(!UECSFindPGMChar(&UECSbuffer[startPos],UECSaccess_LEQUAL,&progPos)){
+		return ;
+	}
+	startPos+=progPos;
 		
-		//copy node name
-		for(i=0;i<20;i++)
-		{
-		
-		if(UECSbuffer[startPos+i]=='<' || UECSbuffer[startPos+i]=='>')//eliminate tag
-			{UECSbuffer[startPos+i]='*';}
-			
-			if(UECSbuffer[startPos+i]=='&'){break;}
-			if(UECSbuffer[startPos+i]=='\0' || i==19){return;}//�I�[�������̂Ŗ���
-			//prevention of Cutting multibyte UTF-8 code
-			if(i>=16 && (unsigned char)UECSbuffer[startPos+i]>=0xC0)//UTF-8 multibyte code header
-				{
-
-				break;
-				}
-
-			UECStempStr20[i]=UECSbuffer[startPos+i];
+	//copy node name
+	for(i=0;i<20;i++){
+		if(UECSbuffer[startPos+i]=='<' || UECSbuffer[startPos+i]=='>'){		//eliminate tag
+			UECSbuffer[startPos+i]='*';
+		}	
+		if(UECSbuffer[startPos+i]=='&'){
+			break;
+		}
+		if(UECSbuffer[startPos+i]=='\0' || i==19){
+			return;
+		}//�I�[�������̂Ŗ���
+		//prevention of Cutting multibyte UTF-8 code
+		if(i>=16 && (unsigned char)UECSbuffer[startPos+i]>=0xC0){	//UTF-8 multibyte code header
+			break;	
 		}
 
-		UECStempStr20[i]='\0';//set end code
+		UECStempStr20[i]=UECSbuffer[startPos+i];
+	}
 
-       for(int i = 0; i < 20; i++)
-       		{
-       		U_nodename[i]=UECStempStr20[i];
-       			
-           	if(EEPROM.read(EEPROM_NODENAME + i)!=U_nodename[i])//skip same value
-           		{
-           	        EEPROM.write(EEPROM_NODENAME + i, U_nodename[i]);
-           		}
-       		}
+	UECStempStr20[i]='\0';//set end code
 
+	for(int i = 0; i < 20; i++){
+		U_nodename[i]=UECStempStr20[i];			
+			if(EEPROM.read(EEPROM_NODENAME + i)!=U_nodename[i]){		//skip same value
+				EEPROM.write(EEPROM_NODENAME + i, U_nodename[i]);
+			}
+	}
 	return ;
-
 }
+
 //--------------------------------------------------------------------
 void HTTPGetFormDataFillCCMAttributePage()
 {
@@ -1505,7 +1572,7 @@ for(i=0;i<=MAX_CCMTYPESIZE;i++)
 	}
 }
 //--------------------------------------------------------------
-//ccmの属性を保存する
+//ccmの属性をEEPROMに保存する
 //引数：ccmid
 void UECS_EEPROM_SaveCCMAttribute(int ccmid)
 {

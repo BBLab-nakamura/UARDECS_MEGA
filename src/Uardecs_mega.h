@@ -9,6 +9,7 @@
 
 /*中村開発メモ
 U_MAX_CCMはメインコードで宣言ccm_dummyの値が入る
+特にネットワークの処理等については継承が利用できそうである
 */
 #ifndef Uardecs_mega_h
 #define Uardecs_mega_h
@@ -503,7 +504,7 @@ extern unsigned long UECSlastmillis;
 
 
 //######################################new
-bool UECSFindPGMChar(char* targetBuffer,const char *_romword_startStr,int *lastPos);
+bool UECSFindPGMChar(char* targetBuffer,const char *_romword_startStr,int *lastPos);		//指定した文字列を探す
 bool UECSGetValPGMStrAndChr(char* targetBuffer,const char *_romword_startStr, char end_asciiCode, short *shortValue,int *lastPos);
 //bool UECSGetValueBetweenChr(char* targetBuffer, char start_asciiCode, char end_asciiCode, short *shortValue,int *lastPos);
 bool UECSGetFixedFloatValue(char* targetBuffer,long *longVal,unsigned char *decimal,int *lastPos);
